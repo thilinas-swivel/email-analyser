@@ -18,8 +18,8 @@ interface Props {
 
 export default function TrendChart({ data, rangeLabel }: Props) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+      <div className="flex items-center gap-3 mb-4 sm:mb-6">
         <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
           <BarChart3 className="w-5 h-5 text-purple-400" />
         </div>
@@ -31,7 +31,7 @@ export default function TrendChart({ data, rangeLabel }: Props) {
         </div>
       </div>
 
-      <div className="h-64">
+      <div className="h-48 sm:h-56 md:h-64">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
             <defs>

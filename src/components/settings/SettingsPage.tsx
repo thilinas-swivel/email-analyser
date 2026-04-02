@@ -150,25 +150,25 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-slate-950 text-white">
       {/* Header */}
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 sm:gap-4">
             <Link
               href="/"
               className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span className="text-sm">Dashboard</span>
+              <span className="text-sm hidden sm:inline">Dashboard</span>
             </Link>
             <div className="w-px h-6 bg-slate-700" />
-            <h1 className="text-lg font-semibold">AI Prompt Settings</h1>
+            <h1 className="text-base sm:text-lg font-semibold">AI Prompt Settings</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={handleReset}
-              className="flex items-center gap-2 text-sm text-slate-400 hover:text-white px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors"
+              className="flex items-center gap-2 text-sm text-slate-400 hover:text-white px-2 sm:px-3 py-2 rounded-lg hover:bg-slate-800 transition-colors"
             >
               <RotateCcw className="w-4 h-4" />
-              Reset Defaults
+              <span className="hidden sm:inline">Reset Defaults</span>
             </button>
             <button
               onClick={handleSave}
@@ -194,7 +194,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
         {/* Info banner */}
         <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-4 text-sm text-indigo-300">
           Customize the prompts and guidelines that the AI uses to analyze your
@@ -205,7 +205,7 @@ export default function SettingsPage() {
         {FIELDS.map((field) => (
           <div
             key={field.key}
-            className="bg-slate-900 border border-slate-800 rounded-xl p-6"
+            className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6"
           >
             <div className="flex items-center gap-3 mb-3">
               <field.icon className={`w-5 h-5 ${field.color}`} />
@@ -226,7 +226,7 @@ export default function SettingsPage() {
         ))}
 
         {/* Custom keywords */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
           <div className="flex items-center gap-3 mb-3">
             <Tag className="w-5 h-5 text-cyan-400" />
             <div>
@@ -283,7 +283,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Email Address Filters */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
           <div className="flex items-start gap-3 mb-4">
             <Filter className="w-5 h-5 text-cyan-400 mt-0.5" />
             <div>
@@ -339,7 +339,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Sender Name Filters */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
           <div className="flex items-start gap-3 mb-4">
             <Filter className="w-5 h-5 text-amber-400 mt-0.5" />
             <div>

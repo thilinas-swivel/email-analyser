@@ -14,8 +14,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Executive Email Intelligence",
-  description: "C-Suite email analytics dashboard powered by Microsoft Outlook",
+  title: "MailSense",
+  description: "AI-powered email analytics dashboard for executives",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

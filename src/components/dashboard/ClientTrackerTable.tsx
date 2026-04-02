@@ -89,9 +89,9 @@ export default function ClientTrackerTable({ threads }: Props) {
   const maxBuyIntent = Math.max(...threads.map((t) => t.buyingIntent), 1);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex items-center gap-3 mb-4 sm:mb-5">
         <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center">
           <Filter className="w-5 h-5 text-indigo-400" />
         </div>
@@ -106,8 +106,8 @@ export default function ClientTrackerTable({ threads }: Props) {
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
+        <div className="relative flex-1 min-w-[150px] sm:min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
@@ -157,8 +157,8 @@ export default function ClientTrackerTable({ threads }: Props) {
           <p className="text-slate-500">No matching client threads.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+          <table className="w-full min-w-[700px]">
             <thead>
               <tr className="border-b border-slate-800">
                 <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">

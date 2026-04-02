@@ -56,8 +56,8 @@ export default function BuyingSignalsSection({ emails }: Props) {
   const maxScore = Math.max(...emails.map((e) => e.signalScore), 1);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+      <div className="flex items-center gap-3 mb-4 sm:mb-6">
         <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center">
           <TrendingUp className="w-5 h-5 text-emerald-400" />
         </div>
@@ -78,8 +78,8 @@ export default function BuyingSignalsSection({ emails }: Props) {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-slate-800">
                 <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">

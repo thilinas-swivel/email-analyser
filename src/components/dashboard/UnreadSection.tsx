@@ -23,8 +23,8 @@ export default function UnreadSection({ categories, distribution }: Props) {
   const total = categories.reduce((sum, c) => sum + c.count, 0);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+      <div className="flex items-center gap-3 mb-4 sm:mb-6">
         <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
           <Mail className="w-5 h-5 text-blue-400" />
         </div>
@@ -36,7 +36,7 @@ export default function UnreadSection({ categories, distribution }: Props) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Pie chart */}
-        <div className="h-64">
+        <div className="h-48 sm:h-56 md:h-64">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie

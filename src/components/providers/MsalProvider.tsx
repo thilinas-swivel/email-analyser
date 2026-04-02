@@ -8,9 +8,24 @@ import {
   AuthenticationResult,
 } from "@azure/msal-browser";
 import { msalConfig } from "@/lib/msal-config";
-import { useEffect, useState } from "react";
+import { useEffect, useState, createContext, useContext } from "react";
+import {
+  initializeTeams,
+  isInTeams,
+  notifyTeamsAppLoaded,
+} from "@/lib/teams-context";
 
 const msalInstance = new PublicClientApplication(msalConfig);
+
+interface TeamsContextValue {
+  inTeams: boolean;
+}
+
+const TeamsContext = createContext<TeamsContextValue>({ inTeams: false });
+
+export function useTeamsContext() {
+  return useContext(TeamsContext);
+}
 
 export default function MsalProvider({
   children,
@@ -18,10 +33,26 @@ export default function MsalProvider({
   children: React.ReactNode;
 }) {
   const [isInitialized, setIsInitialized] = useState(false);
+  const [inTeams, setInTeams] = useState(false);
 
   useEffect(() => {
-    msalInstance.initialize().then(async () => {
-      // Only process redirect if the URL contains a hash with auth data
+    (async () => {
+      // Try Teams first — quick timeout means this won't block on browsers
+      const teamsDetected = await initializeTeams();
+      setInTeams(teamsDetected);
+
+      if (teamsDetected) {
+        // Inside Teams: notify that we're loaded, MSAL is still initialized
+        // but auth will use Teams SSO → OBO instead of redirect.
+        await msalInstance.initialize();
+        await notifyTeamsAppLoaded();
+        setIsInitialized(true);
+        return;
+      }
+
+      // Browser flow: normal MSAL redirect handling
+      await msalInstance.initialize();
+
       const hash = window.location.hash;
       if (hash && (hash.includes("code=") || hash.includes("error="))) {
         try {
@@ -50,7 +81,7 @@ export default function MsalProvider({
       });
 
       setIsInitialized(true);
-    });
+    })();
   }, []);
 
   if (!isInitialized) {
@@ -62,6 +93,8 @@ export default function MsalProvider({
   }
 
   return (
-    <MsalReactProvider instance={msalInstance}>{children}</MsalReactProvider>
+    <TeamsContext.Provider value={{ inTeams }}>
+      <MsalReactProvider instance={msalInstance}>{children}</MsalReactProvider>
+    </TeamsContext.Provider>
   );
 }

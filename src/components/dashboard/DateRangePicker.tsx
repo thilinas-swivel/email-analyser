@@ -101,7 +101,7 @@ export default function DateRangePicker({ value, onChange }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 p-4">
+        <div className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-72 max-w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 p-4">
           {/* Presets */}
           <div className="space-y-1 mb-4">
             {PRESETS.map((preset) => (

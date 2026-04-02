@@ -10,7 +10,7 @@ export const msalConfig: Configuration = {
     cacheLocation: "localStorage",
   },
   system: {
-    allowRedirectInIframe: false,
+    allowRedirectInIframe: true,
     redirectNavigationTimeout: 10000,
     loggerOptions: {
       loggerCallback: (level, message, containsPii) => {

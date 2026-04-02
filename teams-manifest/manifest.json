@@ -1,0 +1,47 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "{{MICROSOFT_APP_ID}}",
+  "developer": {
+    "name": "Your Organization",
+    "websiteUrl": "https://your-domain.com",
+    "privacyUrl": "https://your-domain.com/privacy",
+    "termsOfUseUrl": "https://your-domain.com/terms"
+  },
+  "name": {
+    "short": "MailSense",
+    "full": "MailSense - AI Email Analytics"
+  },
+  "description": {
+    "short": "AI-powered email analytics for executives",
+    "full": "MailSense analyzes your Outlook inbox, detects buying signals, tracks client threads, identifies urgency levels, and provides AI-powered executive summaries using Claude."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#4F46E5",
+  "staticTabs": [
+    {
+      "entityId": "dashboard",
+      "name": "Dashboard",
+      "contentUrl": "https://{{YOUR_DOMAIN}}/",
+      "websiteUrl": "https://{{YOUR_DOMAIN}}/",
+      "scopes": ["personal"]
+    },
+    {
+      "entityId": "settings",
+      "name": "Settings",
+      "contentUrl": "https://{{YOUR_DOMAIN}}/settings",
+      "websiteUrl": "https://{{YOUR_DOMAIN}}/settings",
+      "scopes": ["personal"]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["{{YOUR_DOMAIN}}"],
+  "webApplicationInfo": {
+    "id": "{{MICROSOFT_APP_ID}}",
+    "resource": "api://{{YOUR_DOMAIN}}/{{MICROSOFT_APP_ID}}"
+  }
+}

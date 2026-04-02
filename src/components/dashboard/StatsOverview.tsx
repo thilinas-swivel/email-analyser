@@ -63,17 +63,17 @@ export default function StatsOverview({ stats }: Props) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6 mt-6">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 mt-6">
       {cards.map((card) => (
         <div
           key={card.label}
-          className={`${card.bg} ${card.border} border rounded-xl p-4`}
+          className={`${card.bg} ${card.border} border rounded-xl p-3 sm:p-4`}
         >
-          <div className="flex items-center gap-3 mb-2">
-            <card.icon className={`w-5 h-5 ${card.color}`} />
-            <span className="text-sm text-slate-400">{card.label}</span>
+          <div className="flex items-center gap-2 sm:gap-3 mb-2">
+            <card.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${card.color}`} />
+            <span className="text-xs sm:text-sm text-slate-400">{card.label}</span>
           </div>
-          <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
+          <p className={`text-2xl sm:text-3xl font-bold ${card.color}`}>{card.value}</p>
         </div>
       ))}
     </div>

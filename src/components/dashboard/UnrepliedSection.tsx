@@ -24,8 +24,8 @@ export default function UnrepliedSection({ categories }: Props) {
   const total = categories.reduce((sum, c) => sum + c.count, 0);
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <div className="flex items-center gap-3 mb-6">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+      <div className="flex items-center gap-3 mb-4 sm:mb-6">
         <div className="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center">
           <MailX className="w-5 h-5 text-amber-400" />
         </div>
@@ -45,13 +45,13 @@ export default function UnrepliedSection({ categories }: Props) {
           <BarChart
             data={categories.slice(0, 8)}
             layout="vertical"
-            margin={{ left: 10, right: 20 }}
+            margin={{ left: 0, right: 20 }}
           >
             <XAxis type="number" hide />
             <YAxis
               type="category"
               dataKey="name"
-              width={130}
+              width={100}
               tick={{ fill: "#94a3b8", fontSize: 12 }}
               axisLine={false}
               tickLine={false}

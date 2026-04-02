@@ -1,4 +1,4 @@
-﻿# Executive Email Intelligence Dashboard
+﻿# MailSense
 
 A Next.js dashboard for C-suite executives to analyze and manage their Outlook inbox with intelligent categorization, response tracking, and buying signal detection.
 

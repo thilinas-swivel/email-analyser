@@ -7,6 +7,8 @@ import { getAllRecentEmails, getSentEmails, getUserProfile } from "@/lib/graph-s
 import { analyzeEmails, enrichWithLLMResults } from "@/lib/email-analyzer";
 import { DashboardStats, UserProfile, Email } from "@/lib/types";
 import { loadSettings } from "@/lib/prompt-settings";
+import { useTeamsContext } from "@/components/providers/MsalProvider";
+import { getTeamsSsoToken } from "@/lib/teams-context";
 import DashboardHeader from "./DashboardHeader";
 import DateRangePicker, { DateRange, getDefaultRange } from "./DateRangePicker";
 import StatsOverview from "./StatsOverview";
@@ -18,10 +20,12 @@ import TrendChart from "./TrendChart";
 import TopSendersTable from "./TopSendersTable";
 import ExecutiveSummary from "./ExecutiveSummary";
 import { LogIn, RefreshCw, Shield } from "lucide-react";
+import Image from "next/image";
 
 export default function Dashboard() {
   const { instance, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
+  const { inTeams } = useTeamsContext();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,8 +34,33 @@ export default function Dashboard() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultRange);
   const dateRangeRef = useRef(dateRange);
+  const [teamsReady, setTeamsReady] = useState(false);
+
+  // In Teams, auto-authenticate via SSO
+  useEffect(() => {
+    if (inTeams) {
+      setTeamsReady(true);
+    }
+  }, [inTeams]);
 
   const getAccessToken = useCallback(async (): Promise<string> => {
+    if (inTeams) {
+      // Teams SSO: get ID token, exchange for Graph token via OBO
+      const ssoToken = await getTeamsSsoToken();
+      const res = await fetch("/api/auth/teams-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ssoToken }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to exchange Teams token");
+      }
+      const data = await res.json();
+      return data.accessToken;
+    }
+
+    // Browser flow: MSAL silent token
     const account = accounts[0];
     if (!account) throw new Error("No account found");
 
@@ -40,7 +69,7 @@ export default function Dashboard() {
       account,
     });
     return response.accessToken;
-  }, [instance, accounts]);
+  }, [instance, accounts, inTeams]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -111,15 +140,15 @@ export default function Dashboard() {
   }, [getAccessToken]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated || teamsReady) {
       fetchData();
     }
-  }, [isAuthenticated, fetchData]);
+  }, [isAuthenticated, teamsReady, fetchData]);
 
   const handleDateRangeChange = (range: DateRange) => {
     setDateRange(range);
     dateRangeRef.current = range;
-    if (isAuthenticated) {
+    if (isAuthenticated || teamsReady) {
       fetchData();
     }
   };
@@ -130,16 +159,24 @@ export default function Dashboard() {
     });
   };
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated && !inTeams) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="max-w-md w-full mx-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
-            <div className="w-16 h-16 bg-blue-600/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
-              <Shield className="w-8 h-8 text-blue-400" />
+            <div className="w-24 h-24 mx-auto mb-6">
+              <Image
+                src="/logo.png"
+                alt="MailSense"
+                width={96}
+                height={96}
+                className="rounded-2xl w-24 h-24 ring-1 ring-slate-700 shadow-xl shadow-indigo-500/20"
+                priority
+                unoptimized
+              />
             </div>
             <h1 className="text-2xl font-bold text-white mb-2">
-              Executive Email Intelligence
+              MailSense
             </h1>
             <p className="text-slate-400 mb-8">
               Sign in with your Microsoft account to access your email dashboard
@@ -203,7 +240,7 @@ export default function Dashboard() {
         }
       />
 
-      <main className="max-w-[1600px] mx-auto px-6 pb-12">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 pb-8 sm:pb-12">
         <ExecutiveSummary
           summary={stats.executiveSummary}
           isEnriched={stats.llmEnriched}

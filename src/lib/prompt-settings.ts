@@ -1,6 +1,6 @@
 import { PromptSettings } from "./types";
 
-const STORAGE_KEY = "email-manager-prompt-settings";
+const STORAGE_KEY = "mailsense-prompt-settings";
 
 export const DEFAULT_SETTINGS: PromptSettings = {
   categorizationPrompt: `Categorize this email into one of: "Finance & Billing", "Client Communication", "Internal / Team", "Sales & Partnerships", "Legal & Compliance", "Marketing", "Product & Development", "HR & Recruitment", "Operations", "Newsletters & Updates", "Meeting & Calendar", "Support & Issues". Consider the sender, subject, and body content.`,

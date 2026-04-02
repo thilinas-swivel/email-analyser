@@ -17,7 +17,7 @@ export default function ExecutiveSummary({
 
   return (
     <div className="mt-6 mb-6">
-      <div className="bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 border border-indigo-500/20 rounded-xl p-5">
+      <div className="bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 border border-indigo-500/20 rounded-xl p-4 sm:p-5">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-8 h-8 bg-indigo-500/20 rounded-lg flex items-center justify-center">
             {aiLoading ? (
