@@ -38,4 +38,4 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000 and sign in with Microsoft.
+Open http://localhost:3001 and sign in with Microsoft.
