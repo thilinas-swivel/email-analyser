@@ -53,16 +53,18 @@ export default function MsalProvider({
       // Browser flow: normal MSAL redirect handling
       await msalInstance.initialize();
 
-      const hash = window.location.hash;
-      if (hash && (hash.includes("code=") || hash.includes("error="))) {
-        try {
-          const response = await msalInstance.handleRedirectPromise();
-          if (response) {
-            msalInstance.setActiveAccount(response.account);
+      // Always call handleRedirectPromise - it's safe to call even without a redirect
+      try {
+        const response = await msalInstance.handleRedirectPromise();
+        if (response) {
+          msalInstance.setActiveAccount(response.account);
+          // Clear the hash from URL after successful login
+          if (window.location.hash) {
+            window.history.replaceState(null, "", window.location.pathname);
           }
-        } catch (err) {
-          console.error("Redirect handling error:", err);
         }
+      } catch (err) {
+        console.error("Redirect handling error:", err);
       }
 
       const accounts = msalInstance.getAllAccounts();
