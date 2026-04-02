@@ -5,6 +5,8 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY || "",
 });
 
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+
 export interface EmailForAnalysis {
   id: string;
   subject: string;
@@ -114,7 +116,7 @@ export async function analyzeWithClaude(
     const prompt = buildPrompt(batch, settings);
 
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-5-20250514",
+      model: CLAUDE_MODEL,
       max_tokens: 4096,
       messages: [{ role: "user", content: prompt }],
     });
