@@ -2,8 +2,8 @@
 
 import { ClientThread } from "@/lib/types";
 import { format } from "date-fns";
-import { Search, Filter } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Search, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
 
 interface Props {
   threads: ClientThread[];
@@ -41,11 +41,14 @@ const URGENCY_BADGE: Record<
 
 type SortField = "urgency" | "lastReply" | "buyIntent";
 
+const ITEMS_PER_PAGE = 20;
+
 export default function ClientTrackerTable({ threads }: Props) {
   const [search, setSearch] = useState("");
   const [urgencyFilter, setUrgencyFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState<SortField>("urgency");
   const [buyIntentOnly, setBuyIntentOnly] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const filtered = useMemo(() => {
     let result = threads;
@@ -85,6 +88,16 @@ export default function ClientTrackerTable({ threads }: Props) {
 
     return result;
   }, [threads, search, urgencyFilter, sortBy, buyIntentOnly]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, urgencyFilter, sortBy, buyIntentOnly]);
+
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedThreads = filtered.slice(startIndex, endIndex);
 
   const maxBuyIntent = Math.max(...threads.map((t) => t.buyingIntent), 1);
 
@@ -182,7 +195,7 @@ export default function ClientTrackerTable({ threads }: Props) {
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(0, 50).map((thread) => {
+              {paginatedThreads.map((thread) => {
                 const badge = URGENCY_BADGE[thread.urgencyLevel];
                 const intentPct = Math.min(
                   (thread.buyingIntent / maxBuyIntent) * 100,
@@ -283,10 +296,57 @@ export default function ClientTrackerTable({ threads }: Props) {
               })}
             </tbody>
           </table>
-          {filtered.length > 50 && (
-            <p className="text-sm text-slate-500 mt-4 text-center">
-              Showing top 50 of {filtered.length} client threads
-            </p>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
+              <p className="text-sm text-slate-400">
+                Showing {startIndex + 1}-{Math.min(endIndex, filtered.length)} of {filtered.length} threads
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum: number;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                          currentPage === pageNum
+                            ? "bg-indigo-500 text-white"
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           )}
         </div>
       )}
