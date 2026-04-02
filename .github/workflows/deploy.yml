@@ -27,7 +27,7 @@ jobs:
         env:
           NEXT_PUBLIC_AZURE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_AZURE_CLIENT_ID }}
           NEXT_PUBLIC_AZURE_TENANT_ID: ${{ secrets.NEXT_PUBLIC_AZURE_TENANT_ID }}
-          NEXT_PUBLIC_REDIRECT_URI: https://mailsense-app.azurewebsites.net
+          NEXT_PUBLIC_REDIRECT_URI: https://mailsense.swiveltech.io
 
       - name: Prepare standalone package
         run: |
