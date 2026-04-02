@@ -8,14 +8,22 @@ import {
   AuthenticationResult,
 } from "@azure/msal-browser";
 import { msalConfig } from "@/lib/msal-config";
-import { useEffect, useState, createContext, useContext } from "react";
+import { useEffect, useState, createContext, useContext, useRef } from "react";
 import {
   initializeTeams,
   isInTeams,
   notifyTeamsAppLoaded,
 } from "@/lib/teams-context";
 
-const msalInstance = new PublicClientApplication(msalConfig);
+// Create MSAL instance lazily on client side only
+let msalInstance: PublicClientApplication | null = null;
+
+function getMsalInstance(): PublicClientApplication {
+  if (!msalInstance) {
+    msalInstance = new PublicClientApplication(msalConfig);
+  }
+  return msalInstance;
+}
 
 interface TeamsContextValue {
   inTeams: boolean;
@@ -34,9 +42,14 @@ export default function MsalProvider({
 }) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [inTeams, setInTeams] = useState(false);
+  const instanceRef = useRef<PublicClientApplication | null>(null);
 
   useEffect(() => {
     (async () => {
+      // Get or create MSAL instance on client side
+      const instance = getMsalInstance();
+      instanceRef.current = instance;
+
       // Try Teams first — quick timeout means this won't block on browsers
       const teamsDetected = await initializeTeams();
       setInTeams(teamsDetected);
@@ -44,20 +57,21 @@ export default function MsalProvider({
       if (teamsDetected) {
         // Inside Teams: notify that we're loaded, MSAL is still initialized
         // but auth will use Teams SSO → OBO instead of redirect.
-        await msalInstance.initialize();
+        await instance.initialize();
         await notifyTeamsAppLoaded();
         setIsInitialized(true);
         return;
       }
 
       // Browser flow: normal MSAL redirect handling
-      await msalInstance.initialize();
+      await instance.initialize();
 
       // Always call handleRedirectPromise - it's safe to call even without a redirect
       try {
-        const response = await msalInstance.handleRedirectPromise();
-        if (response) {
-          msalInstance.setActiveAccount(response.account);
+        const response = await instance.handleRedirectPromise();
+        if (response && response.account) {
+          console.log("Login successful, setting active account");
+          instance.setActiveAccount(response.account);
           // Clear the hash from URL after successful login
           if (window.location.hash) {
             window.history.replaceState(null, "", window.location.pathname);
@@ -67,18 +81,19 @@ export default function MsalProvider({
         console.error("Redirect handling error:", err);
       }
 
-      const accounts = msalInstance.getAllAccounts();
+      const accounts = instance.getAllAccounts();
+      console.log("Accounts found:", accounts.length);
       if (accounts.length > 0) {
-        msalInstance.setActiveAccount(accounts[0]);
+        instance.setActiveAccount(accounts[0]);
       }
 
-      msalInstance.addEventCallback((event: EventMessage) => {
+      instance.addEventCallback((event: EventMessage) => {
         if (
           event.eventType === EventType.LOGIN_SUCCESS &&
           event.payload
         ) {
           const payload = event.payload as AuthenticationResult;
-          msalInstance.setActiveAccount(payload.account);
+          instance.setActiveAccount(payload.account);
         }
       });
 
@@ -86,7 +101,7 @@ export default function MsalProvider({
     })();
   }, []);
 
-  if (!isInitialized) {
+  if (!isInitialized || !instanceRef.current) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
         <div className="animate-pulse text-slate-400">Initializing...</div>
@@ -96,7 +111,7 @@ export default function MsalProvider({
 
   return (
     <TeamsContext.Provider value={{ inTeams }}>
-      <MsalReactProvider instance={msalInstance}>{children}</MsalReactProvider>
+      <MsalReactProvider instance={instanceRef.current}>{children}</MsalReactProvider>
     </TeamsContext.Provider>
   );
 }
