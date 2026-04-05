@@ -351,8 +351,22 @@ export default function Dashboard() {
       setAiLoading(true);
       try {
         const userEmailLower = userProfile.mail.toLowerCase();
+
+        // Prioritize unreplied emails so client/internal tracker threads
+        // always get AI analysis even when total emails exceed the 200 limit.
+        const sentConvoIds = new Set(sentEmails.map((e) => e.conversationId));
+        const unreplied: Email[] = [];
+        const replied: Email[] = [];
+        for (const e of allEmails) {
+          if (sentConvoIds.has(e.conversationId)) {
+            replied.push(e);
+          } else {
+            unreplied.push(e);
+          }
+        }
+        const prioritizedEmails = [...unreplied, ...replied];
         
-        const emailsForLLM = allEmails.slice(0, 200).map((e) => {
+        const emailsForLLM = prioritizedEmails.slice(0, 200).map((e) => {
           const senderAddress = e.from?.emailAddress?.address || "";
           const senderName = e.from?.emailAddress?.name || "Unknown Sender";
           // Determine if user is in TO, CC, or BCC (inferred)
