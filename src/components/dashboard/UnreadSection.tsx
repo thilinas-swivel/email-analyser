@@ -1,6 +1,6 @@
 "use client";
 
-import { EmailCategory } from "@/lib/types";
+import { EmailCategory, ScopeBreakdown } from "@/lib/types";
 import {
   PieChart,
   Pie,
@@ -8,17 +8,52 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { Mail, ChevronDown, ChevronUp } from "lucide-react";
+import { Mail } from "lucide-react";
 import { useState } from "react";
-import { format } from "date-fns";
+import CategoryEmailsModal from "./CategoryEmailsModal";
 
 interface Props {
   categories: EmailCategory[];
   distribution: { name: string; value: number }[];
+  scopedCategories?: ScopeBreakdown<EmailCategory[]>;
+  showSplit?: boolean;
 }
 
-export default function UnreadSection({ categories, distribution }: Props) {
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+function CategoryList({
+  categories,
+  onSelect,
+}: {
+  categories: EmailCategory[];
+  onSelect: (category: EmailCategory) => void;
+}) {
+  return (
+    <div className="space-y-2 max-h-64 overflow-y-auto pr-2 scrollbar-thin">
+      {categories.length === 0 ? (
+        <p className="text-sm text-slate-500">No emails in this scope.</p>
+      ) : (
+        categories.map((cat) => (
+          <button
+            key={cat.name}
+            onClick={() => onSelect(cat)}
+            className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-slate-800 transition-colors text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: cat.color }}
+              />
+              <span className="text-sm text-slate-300">{cat.name}</span>
+            </div>
+            <span className="text-sm font-semibold text-white">{cat.count}</span>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
+export default function UnreadSection({ categories, distribution, scopedCategories, showSplit }: Props) {
+  const [selectedCategory, setSelectedCategory] = useState<EmailCategory | null>(null);
 
   const total = categories.reduce((sum, c) => sum + c.count, 0);
 
@@ -34,6 +69,25 @@ export default function UnreadSection({ categories, distribution }: Props) {
         </div>
       </div>
 
+      {showSplit && scopedCategories ? (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {([
+            { label: "Internal", tone: "text-violet-300", categories: scopedCategories.internal },
+            { label: "External", tone: "text-cyan-300", categories: scopedCategories.external },
+          ] as const).map((scope) => {
+            const scopeTotal = scope.categories.reduce((sum, category) => sum + category.count, 0);
+            return (
+              <div key={scope.label} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${scope.tone}`}>{scope.label}</h3>
+                  <span className="text-xs text-slate-500">{scopeTotal} unread</span>
+                </div>
+                <CategoryList categories={scope.categories} onSelect={setSelectedCategory} />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Pie chart */}
         <div className="h-48 sm:h-56 md:h-64">
@@ -65,66 +119,12 @@ export default function UnreadSection({ categories, distribution }: Props) {
           </ResponsiveContainer>
         </div>
 
-        {/* Category list */}
+        {/* Category list - click opens modal */}
         <div className="space-y-2 max-h-64 overflow-y-auto pr-2 scrollbar-thin">
-          {categories.map((cat) => (
-            <div key={cat.name}>
-              <button
-                onClick={() =>
-                  setExpandedCategory(
-                    expandedCategory === cat.name ? null : cat.name
-                  )
-                }
-                className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-slate-800 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: cat.color }}
-                  />
-                  <span className="text-sm text-slate-300">{cat.name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-white">
-                    {cat.count}
-                  </span>
-                  {expandedCategory === cat.name ? (
-                    <ChevronUp className="w-4 h-4 text-slate-500" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-slate-500" />
-                  )}
-                </div>
-              </button>
-              {expandedCategory === cat.name && (
-                <div className="ml-6 mt-1 space-y-1">
-                  {cat.emails.slice(0, 5).map((email) => (
-                    <div
-                      key={email.id}
-                      className="p-2 bg-slate-800/50 rounded-lg"
-                    >
-                      <p className="text-xs text-white truncate">
-                        {email.subject}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {email.from.emailAddress.name} &middot;{" "}
-                        {format(
-                          new Date(email.receivedDateTime),
-                          "MMM d, h:mm a"
-                        )}
-                      </p>
-                    </div>
-                  ))}
-                  {cat.emails.length > 5 && (
-                    <p className="text-xs text-slate-500 pl-2">
-                      +{cat.emails.length - 5} more
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          <CategoryList categories={categories} onSelect={setSelectedCategory} />
         </div>
       </div>
+      )}
 
       {/* Importance distribution */}
       <div className="mt-6 pt-4 border-t border-slate-800">
@@ -151,6 +151,15 @@ export default function UnreadSection({ categories, distribution }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Modal for category emails */}
+      <CategoryEmailsModal
+        isOpen={selectedCategory !== null}
+        onClose={() => setSelectedCategory(null)}
+        categoryName={selectedCategory?.name || ""}
+        categoryColor={selectedCategory?.color || "#94a3b8"}
+        emails={selectedCategory?.emails || []}
+      />
     </div>
   );
 }

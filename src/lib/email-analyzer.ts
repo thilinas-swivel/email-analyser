@@ -6,7 +6,10 @@ import {
   BuyingSignalEmail,
   DashboardStats,
   ClientThread,
+  InternalThread,
   PromptSettings,
+  TrendPoint,
+  SenderStat,
 } from "./types";
 import type { LLMBatchResult, LLMEmailAnalysis } from "./claude-service";
 
@@ -25,50 +28,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   "Support & Issues": "#dc2626",
   "Uncategorized": "#94a3b8",
 };
-
-const BUYING_KEYWORDS = [
-  "budget",
-  "pricing",
-  "proposal",
-  "quote",
-  "contract",
-  "purchase",
-  "buy",
-  "invest",
-  "roi",
-  "timeline",
-  "implementation",
-  "onboard",
-  "demo",
-  "trial",
-  "pilot",
-  "decision",
-  "stakeholder",
-  "approval",
-  "procurement",
-  "vendor",
-  "rfp",
-  "rfi",
-  "scope",
-  "deliverable",
-  "kickoff",
-  "start date",
-  "go-live",
-  "sign off",
-  "payment terms",
-  "license",
-  "subscription",
-  "renewal",
-  "upgrade",
-  "expand",
-  "scale",
-  "next steps",
-  "ready to move",
-  "interested in",
-  "looking for a solution",
-  "evaluate",
-  "shortlist",
-];
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   "Finance & Billing": [
@@ -121,7 +80,31 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   ],
 };
 
-function categorizeEmail(email: Email): string {
+function extractDomain(emailAddress: string): string {
+  const parts = emailAddress.toLowerCase().split("@");
+  return parts.length > 1 ? parts[1] : "";
+}
+
+function getSenderAddress(email: Email): string {
+  return email.from?.emailAddress?.address ?? "";
+}
+
+function getSenderName(email: Email): string {
+  return email.from?.emailAddress?.name ?? "Unknown Sender";
+}
+
+function isInternalEmail(email: Email, userDomain: string | undefined): boolean {
+  if (!userDomain) return false;
+  const senderDomain = extractDomain(getSenderAddress(email));
+  return senderDomain === userDomain;
+}
+
+function categorizeEmail(email: Email, userDomain?: string): string {
+  // Check if internal email first (same domain as user)
+  if (userDomain && isInternalEmail(email, userDomain)) {
+    return "Internal / Team";
+  }
+
   if (email.categories && email.categories.length > 0) {
     return email.categories[0];
   }
@@ -145,31 +128,6 @@ function categorizeEmail(email: Email): string {
   }
 
   return bestCategory;
-}
-
-function computeBuyingSignals(email: Email): { score: number; signals: string[] } {
-  const text = `${email.subject} ${email.bodyPreview}`.toLowerCase();
-  const signals: string[] = [];
-  let score = 0;
-
-  for (const keyword of BUYING_KEYWORDS) {
-    if (text.includes(keyword)) {
-      signals.push(keyword);
-      score += 1;
-    }
-  }
-
-  // Boost score for high importance
-  if (email.importance === "high") {
-    score += 2;
-  }
-
-  // Boost for flagged emails
-  if (email.flag?.flagStatus === "flagged") {
-    score += 1;
-  }
-
-  return { score, signals };
 }
 
 function extractCompanyFromEmail(email: string): string {
@@ -197,27 +155,8 @@ function getUrgencyLevel(
   return "low";
 }
 
-export function analyzeEmails(
-  allEmails: Email[],
-  sentEmails: Email[],
-  dateRange?: { start: Date; end: Date },
-  settings?: PromptSettings
-): DashboardStats {
-  const now = new Date();
-  const rangeStart = dateRange?.start ?? new Date(now.getFullYear(), 0, 1);
-  const rangeEnd = dateRange?.end ?? now;
-
-  // --- Unread analysis ---
-  const unreadEmails = allEmails.filter((e) => !e.isRead);
-  const categoryMap = new Map<string, Email[]>();
-
-  for (const email of unreadEmails) {
-    const cat = categorizeEmail(email);
-    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
-    categoryMap.get(cat)!.push(email);
-  }
-
-  const unreadByCategory: EmailCategory[] = Array.from(categoryMap.entries())
+function categoryMapToArray(categoryMap: Map<string, Email[]>): EmailCategory[] {
+  return Array.from(categoryMap.entries())
     .map(([name, emails]) => ({
       name,
       count: emails.length,
@@ -225,6 +164,45 @@ export function analyzeEmails(
       emails,
     }))
     .sort((a, b) => b.count - a.count);
+}
+
+export function analyzeEmails(
+  allEmails: Email[],
+  sentEmails: Email[],
+  dateRange?: { start: Date; end: Date },
+  settings?: PromptSettings,
+  userEmail?: string
+): DashboardStats {
+  const now = new Date();
+  const rangeStart = dateRange?.start ?? new Date(now.getFullYear(), 0, 1);
+  const rangeEnd = dateRange?.end ?? now;
+  
+  // Extract user's domain for internal email detection
+  const userDomain = userEmail ? extractDomain(userEmail) : undefined;
+
+  // --- Unread analysis ---
+  const unreadEmails = allEmails.filter((e) => !e.isRead);
+  const categoryMap = new Map<string, Email[]>();
+  const internalUnreadCategoryMap = new Map<string, Email[]>();
+  const externalUnreadCategoryMap = new Map<string, Email[]>();
+
+  for (const email of unreadEmails) {
+    const cat = categorizeEmail(email, userDomain);
+    if (!categoryMap.has(cat)) categoryMap.set(cat, []);
+    categoryMap.get(cat)!.push(email);
+
+    const scopeMap = isInternalEmail(email, userDomain)
+      ? internalUnreadCategoryMap
+      : externalUnreadCategoryMap;
+    if (!scopeMap.has(cat)) scopeMap.set(cat, []);
+    scopeMap.get(cat)!.push(email);
+  }
+
+  const unreadByCategory: EmailCategory[] = categoryMapToArray(categoryMap);
+  const unreadByCategoryByScope = {
+    internal: categoryMapToArray(internalUnreadCategoryMap),
+    external: categoryMapToArray(externalUnreadCategoryMap),
+  };
 
   // --- Unreplied analysis ---
   const sentConversationIds = new Set(sentEmails.map((e) => e.conversationId));
@@ -233,11 +211,19 @@ export function analyzeEmails(
   );
 
   const unrepliedCategoryMap = new Map<string, Email[]>();
+  const internalUnrepliedCategoryMap = new Map<string, Email[]>();
+  const externalUnrepliedCategoryMap = new Map<string, Email[]>();
   const unrepliedEmails: UnrepliedEmail[] = incomingEmails.map((email) => {
     const daysSince = differenceInDays(now, new Date(email.receivedDateTime));
-    const cat = categorizeEmail(email);
+    const cat = categorizeEmail(email, userDomain);
     if (!unrepliedCategoryMap.has(cat)) unrepliedCategoryMap.set(cat, []);
     unrepliedCategoryMap.get(cat)!.push(email);
+
+    const scopeMap = isInternalEmail(email, userDomain)
+      ? internalUnrepliedCategoryMap
+      : externalUnrepliedCategoryMap;
+    if (!scopeMap.has(cat)) scopeMap.set(cat, []);
+    scopeMap.get(cat)!.push(email);
 
     let urgencyScore = daysSince;
     if (email.importance === "high") urgencyScore += 5;
@@ -258,9 +244,50 @@ export function analyzeEmails(
   });
 
   // --- Build client threads (grouped by sender) ---
+  // Filter: only EXTERNAL client emails (not internal, not automated/noise)
+  const emailFilters = settings?.noiseEmailFilters ?? [
+    "noreply@", "no-reply@", "donotreply@",
+    "notifications@", "notification@", "mailer-daemon@", "postmaster@",
+    "microsoft.com", "teams.microsoft",
+    "slack.com", "slackbot",
+    "powerbi", "sharepoint",
+    "github.com", "azure.com", "aws.amazon.com",
+    "supabase.com", "vercel.com", "netlify.com",
+    "jira", "atlassian", "trello",
+    "mailchimp", "sendgrid", "hubspot",
+    "zendesk", "freshdesk", "intercom",
+    "calendly", "zoom.us", "webex",
+  ];
+  const nameFilters = settings?.noiseNameFilters ?? [
+    "in teams", "via teams", "power bi", "slack", "microsoft ",
+    "automated", "system", "do not reply", "no reply",
+    "security alert", "notification", "digest",
+  ];
+
+  const isNoiseOrInternalEmail = (email: UnrepliedEmail): boolean => {
+    const addr = getSenderAddress(email).toLowerCase();
+    const name = getSenderName(email).toLowerCase();
+    
+    // Check if internal (same domain as user)
+    if (userDomain && extractDomain(addr) === userDomain) {
+      return true;
+    }
+    
+    // Check if noise/automated
+    const isNoise =
+      emailFilters.some((f) => addr.includes(f.toLowerCase())) ||
+      nameFilters.some((f) => name.includes(f.toLowerCase()));
+    
+    return isNoise;
+  };
+
   const threadMap = new Map<string, UnrepliedEmail[]>();
   for (const email of unrepliedEmails) {
-    const addr = email.from.emailAddress.address;
+    // Skip internal and noise emails for client tracker
+    if (isNoiseOrInternalEmail(email)) continue;
+    
+    const addr = getSenderAddress(email);
+    if (!addr) continue;
     if (!threadMap.has(addr)) threadMap.set(addr, []);
     threadMap.get(addr)!.push(email);
   }
@@ -269,7 +296,6 @@ export function analyzeEmails(
     .map(([addr, emails]) => {
       const latest = emails[0]; // already sorted by receivedDateTime desc
       const daysSince = differenceInDays(now, new Date(latest.receivedDateTime));
-      const { score: buyIntent, signals } = computeBuyingSignals(latest);
       const company = extractCompanyFromEmail(addr);
       const highestUrgency = emails.reduce<"critical" | "high" | "medium" | "low">(
         (best, e) => {
@@ -280,7 +306,7 @@ export function analyzeEmails(
       );
 
       return {
-        clientName: latest.from.emailAddress.name,
+        clientName: getSenderName(latest),
         clientEmail: addr,
         company,
         subject: latest.subject,
@@ -288,9 +314,10 @@ export function analyzeEmails(
         daysSinceLastReply: daysSince,
         lastReplyDate: latest.receivedDateTime,
         replyStatus: daysSince === 0 ? "Awaiting your reply" : "Awaiting your reply",
-        buyingIntent: buyIntent,
-        hasBuyIntent: buyIntent >= 2,
-        matchedKeywords: signals,
+        replyNeeded: true,
+        buyingIntent: 0,
+        hasBuyIntent: false,
+        matchedKeywords: [],
         lastMessage: latest.bodyPreview || "",
         emails,
       };
@@ -300,31 +327,117 @@ export function analyzeEmails(
       return order[a.urgencyLevel] - order[b.urgencyLevel];
     });
 
-  const unrepliedByCategory: EmailCategory[] = Array.from(
-    unrepliedCategoryMap.entries()
-  )
-    .map(([name, emails]) => ({
-      name,
-      count: emails.length,
-      color: CATEGORY_COLORS[name] || "#94a3b8",
-      emails,
-    }))
-    .sort((a, b) => b.count - a.count);
+  // --- Build internal threads (same domain as user, filter out noise) ---
+  const isNoiseEmail = (email: UnrepliedEmail): boolean => {
+    const addr = getSenderAddress(email).toLowerCase();
+    const name = getSenderName(email).toLowerCase();
+    return (
+      emailFilters.some((f) => addr.includes(f.toLowerCase())) ||
+      nameFilters.some((f) => name.includes(f.toLowerCase()))
+    );
+  };
 
-  // --- Buying signals ---
-  const buyingSignalEmails: BuyingSignalEmail[] = allEmails
-    .map((email) => {
-      const { score, signals } = computeBuyingSignals(email);
-      const senderCompany = extractCompanyFromEmail(
-        email.from.emailAddress.address
-      );
-      return { ...email, signalScore: score, signals, senderCompany };
+  // Conservative keyword detection - only for initial display before AI analysis
+  // These are strong indicators that definitely need reply
+  const strongReplyIndicators = [
+    "please confirm", "please respond", "please reply",
+    "awaiting your", "need your approval", "requires your",
+    "your decision", "your sign-off", "action needed",
+  ];
+
+  // Patterns that indicate NO reply needed (informational)
+  const noReplyPatterns = [
+    "ooo", "out of office", "out-of-office",
+    "sick leave", "vacation", "annual leave", "pto",
+    "fyi", "for your information", "no action required",
+    "no response needed", "no reply needed",
+    "weekly update", "weekly report", "status report", "status update",
+    "newsletter", "announcement", "broadcast",
+    "meeting invite", "calendar", "declined:", "accepted:",
+  ];
+
+  const detectReplyNeeded = (email: UnrepliedEmail): boolean => {
+    const text = `${email.subject} ${email.bodyPreview}`.toLowerCase();
+    
+    // First check if it's clearly informational - NO reply needed
+    if (noReplyPatterns.some((p) => text.includes(p))) {
+      return false;
+    }
+    
+    // Only flag for reply if strong indicators present
+    // Flagged emails typically need attention
+    if (email.flag?.flagStatus === "flagged") return true;
+    // Check for strong reply indicators
+    return strongReplyIndicators.some((kw) => text.includes(kw.toLowerCase()));
+  };
+
+  // Build internal threads only if tracking is enabled (default: true)
+  let internalThreads: InternalThread[] = [];
+  
+  if (settings?.trackInternalEmails !== false) {
+    const internalThreadMap = new Map<string, UnrepliedEmail[]>();
+    for (const email of unrepliedEmails) {
+      const addr = getSenderAddress(email).toLowerCase();
+      // Only include internal emails (same domain) and exclude noise
+      if (!userDomain || extractDomain(addr) !== userDomain) continue;
+      if (isNoiseEmail(email)) continue;
+      if (!addr) continue;
+      
+      if (!internalThreadMap.has(addr)) internalThreadMap.set(addr, []);
+      internalThreadMap.get(addr)!.push(email);
+    }
+
+    internalThreads = Array.from(internalThreadMap.entries())
+      .map(([addr, emails]) => {
+        const latest = emails[0];
+        const daysSince = differenceInDays(now, new Date(latest.receivedDateTime));
+        const highestUrgency = emails.reduce<"critical" | "high" | "medium" | "low">(
+          (best, e) => {
+            const order = { critical: 0, high: 1, medium: 2, low: 3 };
+            return order[e.urgencyLevel] < order[best] ? e.urgencyLevel : best;
+          },
+          "low"
+        );
+        // Check if any email in thread needs reply
+      const needsReply = emails.some(detectReplyNeeded);
+
+      return {
+        senderName: getSenderName(latest),
+        senderEmail: addr,
+        department: "", // Could be enriched later
+        subject: latest.subject,
+        urgencyLevel: highestUrgency,
+        daysSinceReceived: daysSince,
+        receivedDate: latest.receivedDateTime,
+        replyNeeded: needsReply,
+        hasReplied: false, // These are unreplied by definition
+        lastMessage: latest.bodyPreview || "",
+        emails,
+      };
     })
-    .filter((e) => e.signalScore >= 2)
-    .sort((a, b) => b.signalScore - a.signalScore);
+    .sort((a, b) => {
+      // Sort by reply needed first, then urgency
+      if (a.replyNeeded !== b.replyNeeded) return a.replyNeeded ? -1 : 1;
+      const order = { critical: 0, high: 1, medium: 2, low: 3 };
+      return order[a.urgencyLevel] - order[b.urgencyLevel];
+    });
+  }
+
+  const unrepliedByCategory: EmailCategory[] = categoryMapToArray(unrepliedCategoryMap);
+  const unrepliedByCategoryByScope = {
+    internal: categoryMapToArray(internalUnrepliedCategoryMap),
+    external: categoryMapToArray(externalUnrepliedCategoryMap),
+  };
+
+  // --- Buying signals are LLM-only. Keep empty until enrichment completes. ---
+  const buyingSignalEmails: BuyingSignalEmail[] = [];
 
   // --- Unread trend (adapts to date range) ---
-  const unreadTrend: { date: string; count: number }[] = [];
+  const unreadTrend: TrendPoint[] = [];
+  const unreadTrendByScope = {
+    internal: [] as TrendPoint[],
+    external: [] as TrendPoint[],
+  };
   const rangeDays = Math.ceil(
     (rangeEnd.getTime() - rangeStart.getTime()) / (24 * 60 * 60 * 1000)
   );
@@ -342,7 +455,14 @@ export function analyzeEmails(
         const d = new Date(e.receivedDateTime);
         return d >= dayStart && d < dayEnd;
       }).length;
+      const internalCount = unreadEmails.filter((e) => {
+        const d = new Date(e.receivedDateTime);
+        return d >= dayStart && d < dayEnd && isInternalEmail(e, userDomain);
+      }).length;
+      const externalCount = count - internalCount;
       unreadTrend.push({ date: dayStr, count });
+      unreadTrendByScope.internal.push({ date: dayStr, count: internalCount });
+      unreadTrendByScope.external.push({ date: dayStr, count: externalCount });
     }
   } else {
     // Weekly buckets for longer ranges
@@ -357,37 +477,56 @@ export function analyzeEmails(
         const d = new Date(e.receivedDateTime);
         return d >= weekStart && d < weekEnd;
       }).length;
+      const internalCount = unreadEmails.filter((e) => {
+        const d = new Date(e.receivedDateTime);
+        return d >= weekStart && d < weekEnd && isInternalEmail(e, userDomain);
+      }).length;
+      const externalCount = count - internalCount;
       unreadTrend.push({ date: label, count });
+      unreadTrendByScope.internal.push({ date: label, count: internalCount });
+      unreadTrendByScope.external.push({ date: label, count: externalCount });
     }
   }
 
-  // --- Top senders (filter out automated/system senders) ---
-  const emailFilters = settings?.noiseEmailFilters ?? [
-    "noreply@", "no-reply@", "donotreply@",
-    "notifications@", "notification@", "mailer-daemon@", "postmaster@",
-    "microsoft.com", "teams.microsoft",
-    "slack.com", "slackbot",
-    "powerbi", "sharepoint",
-  ];
-  const nameFilters = settings?.noiseNameFilters ?? [
-    "in teams", "via teams", "power bi", "slack", "microsoft ",
-  ];
-  const senderMap = new Map<string, { name: string; email: string; count: number }>();
+  // --- Top senders (filter out automated/system senders and internal) ---
+  const senderMap = new Map<string, SenderStat>();
+  const internalSenderMap = new Map<string, SenderStat>();
+  const externalSenderMap = new Map<string, SenderStat>();
   for (const email of allEmails) {
-    const addr = email.from.emailAddress.address.toLowerCase();
-    const name = email.from.emailAddress.name;
+    const addr = getSenderAddress(email).toLowerCase();
+    const name = getSenderName(email);
+    if (!addr) continue;
+
     const isNoise =
       emailFilters.some((f) => addr.includes(f.toLowerCase())) ||
       nameFilters.some((f) => name.toLowerCase().includes(f.toLowerCase()));
     if (isNoise) continue;
-    if (!senderMap.has(addr)) {
-      senderMap.set(addr, { name, email: addr, count: 0 });
+
+    const internal = userDomain ? extractDomain(addr) === userDomain : false;
+    const scopedMap = internal ? internalSenderMap : externalSenderMap;
+    if (!scopedMap.has(addr)) {
+      scopedMap.set(addr, { name, email: addr, count: 0 });
     }
-    senderMap.get(addr)!.count++;
+    scopedMap.get(addr)!.count++;
+
+    if (!internal) {
+      if (!senderMap.has(addr)) {
+        senderMap.set(addr, { name, email: addr, count: 0 });
+      }
+      senderMap.get(addr)!.count++;
+    }
   }
   const topSenders = Array.from(senderMap.values())
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
+  const topSendersByScope = {
+    internal: Array.from(internalSenderMap.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+    external: Array.from(externalSenderMap.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+  };
 
   // --- Importance distribution ---
   const importanceCounts = { high: 0, normal: 0, low: 0 };
@@ -449,11 +588,16 @@ export function analyzeEmails(
     awaitingReplyOver2d,
     avgResponseTime: Math.round(avgResponseTime),
     unreadByCategory,
+    unreadByCategoryByScope,
     unrepliedByCategory,
+    unrepliedByCategoryByScope,
     buyingSignalEmails,
     clientThreads,
+    internalThreads,
     unreadTrend,
+    unreadTrendByScope,
     topSenders,
+    topSendersByScope,
     importanceDistribution,
     llmEnriched: false,
   };
@@ -467,76 +611,99 @@ export function analyzeEmails(
 export function enrichWithLLMResults(
   stats: DashboardStats,
   allEmails: Email[],
-  llmResult: LLMBatchResult
+  llmResult: LLMBatchResult,
+  userEmail?: string
 ): DashboardStats {
   const analysisMap = new Map<string, LLMEmailAnalysis>();
   for (const a of llmResult.analyses) {
     analysisMap.set(a.id, a);
   }
+  
+  // Extract user's domain for internal email detection
+  const userDomain = userEmail ? extractDomain(userEmail) : undefined;
 
   // --- Re-categorize unread emails using LLM categories ---
   const unreadEmails = allEmails.filter((e) => !e.isRead);
   const llmCategoryMap = new Map<string, Email[]>();
 
   for (const email of unreadEmails) {
-    const llm = analysisMap.get(email.id);
-    const cat = llm?.category || categorizeEmail(email);
-    if (!llmCategoryMap.has(cat)) llmCategoryMap.set(cat, []);
-    llmCategoryMap.get(cat)!.push(email);
+    // Check for internal emails first (same domain)
+    if (userDomain && isInternalEmail(email, userDomain)) {
+      if (!llmCategoryMap.has("Internal / Team")) llmCategoryMap.set("Internal / Team", []);
+      llmCategoryMap.get("Internal / Team")!.push(email);
+    } else {
+      const llm = analysisMap.get(email.id);
+      const cat = llm?.category || categorizeEmail(email, userDomain);
+      if (!llmCategoryMap.has(cat)) llmCategoryMap.set(cat, []);
+      llmCategoryMap.get(cat)!.push(email);
+    }
   }
 
-  const unreadByCategory: EmailCategory[] = Array.from(llmCategoryMap.entries())
-    .map(([name, emails]) => ({
-      name,
-      count: emails.length,
-      color: CATEGORY_COLORS[name] || "#94a3b8",
-      emails,
-    }))
-    .sort((a, b) => b.count - a.count);
+  const unreadByCategory: EmailCategory[] = categoryMapToArray(llmCategoryMap);
+  const llmInternalUnreadCategoryMap = new Map<string, Email[]>();
+  const llmExternalUnreadCategoryMap = new Map<string, Email[]>();
+  for (const email of unreadEmails) {
+    const internal = userDomain ? isInternalEmail(email, userDomain) : false;
+    const llm = analysisMap.get(email.id);
+    const cat = internal ? "Internal / Team" : llm?.category || categorizeEmail(email, userDomain);
+    const target = internal ? llmInternalUnreadCategoryMap : llmExternalUnreadCategoryMap;
+    if (!target.has(cat)) target.set(cat, []);
+    target.get(cat)!.push(email);
+  }
+  const unreadByCategoryByScope = {
+    internal: categoryMapToArray(llmInternalUnreadCategoryMap),
+    external: categoryMapToArray(llmExternalUnreadCategoryMap),
+  };
 
   // --- Re-categorize unreplied using LLM ---
   const unrepliedCategoryMap = new Map<string, Email[]>();
   for (const cat of stats.unrepliedByCategory) {
     for (const email of cat.emails) {
-      const llm = analysisMap.get(email.id);
-      const newCat = llm?.category || cat.name;
-      if (!unrepliedCategoryMap.has(newCat)) unrepliedCategoryMap.set(newCat, []);
-      unrepliedCategoryMap.get(newCat)!.push(email);
+      // Check for internal emails first (same domain)
+      if (userDomain && isInternalEmail(email, userDomain)) {
+        if (!unrepliedCategoryMap.has("Internal / Team")) unrepliedCategoryMap.set("Internal / Team", []);
+        unrepliedCategoryMap.get("Internal / Team")!.push(email);
+      } else {
+        const llm = analysisMap.get(email.id);
+        const newCat = llm?.category || cat.name;
+        if (!unrepliedCategoryMap.has(newCat)) unrepliedCategoryMap.set(newCat, []);
+        unrepliedCategoryMap.get(newCat)!.push(email);
+      }
     }
   }
 
-  const unrepliedByCategory: EmailCategory[] = Array.from(
-    unrepliedCategoryMap.entries()
-  )
-    .map(([name, emails]) => ({
-      name,
-      count: emails.length,
-      color: CATEGORY_COLORS[name] || "#94a3b8",
-      emails,
-    }))
-    .sort((a, b) => b.count - a.count);
+  const unrepliedByCategory: EmailCategory[] = categoryMapToArray(unrepliedCategoryMap);
+  const llmInternalUnrepliedCategoryMap = new Map<string, Email[]>();
+  const llmExternalUnrepliedCategoryMap = new Map<string, Email[]>();
+  for (const category of unrepliedByCategory) {
+    for (const email of category.emails) {
+      const internal = userDomain ? isInternalEmail(email, userDomain) : false;
+      const target = internal ? llmInternalUnrepliedCategoryMap : llmExternalUnrepliedCategoryMap;
+      if (!target.has(category.name)) target.set(category.name, []);
+      target.get(category.name)!.push(email);
+    }
+  }
+  const unrepliedByCategoryByScope = {
+    internal: categoryMapToArray(llmInternalUnrepliedCategoryMap),
+    external: categoryMapToArray(llmExternalUnrepliedCategoryMap),
+  };
 
-  // --- Upgrade buying signals with LLM scores ---
+  // --- Buying signals (LLM-only) ---
   const buyingSignalEmails: BuyingSignalEmail[] = allEmails
     .map((email) => {
       const llm = analysisMap.get(email.id);
-      const { score: keywordScore, signals } = computeBuyingSignals(email);
       const senderCompany = extractCompanyFromEmail(
-        email.from.emailAddress.address
+        getSenderAddress(email)
       );
 
-      const llmScore = llm?.buyingSignal?.score || 0;
-      // Combine: LLM score (0-10) weighted more heavily + keyword score
-      const combinedScore = llmScore > 0
-        ? Math.round(llmScore * 0.7 + Math.min(keywordScore, 10) * 0.3)
-        : keywordScore;
-
+      const llmScore = llm?.buyingSignal?.score ?? 0;
       return {
         ...email,
-        signalScore: combinedScore,
-        signals: llm?.buyingSignal?.intent && llm.buyingSignal.intent !== "none"
-          ? [llm.buyingSignal.intent, ...signals]
-          : signals,
+        signalScore: llmScore,
+        signals:
+          llm?.buyingSignal?.intent && llm.buyingSignal.intent !== "none"
+            ? [llm.buyingSignal.intent]
+            : [],
         senderCompany,
         buyingStage: llm?.buyingSignal?.stage,
         buyingIntent: llm?.buyingSignal?.intent,
@@ -560,25 +727,58 @@ export function enrichWithLLMResults(
 
   // --- Update client threads with LLM data ---
   const updatedClientThreads = stats.clientThreads.map((thread) => {
-    const latestEmail = thread.emails[0];
-    const llm = latestEmail ? analysisMap.get(latestEmail.id) : undefined;
-    if (!llm) return thread;
+    let selectedAnalysis: LLMEmailAnalysis | undefined;
+    let llmUrgency = thread.urgencyLevel;
+    let llmBuyScore = thread.buyingIntent;
+    let llmKeywords = thread.matchedKeywords;
+    let aiReplyNeeded: boolean | undefined = undefined;
 
-    // Override urgency with LLM priority if available
-    const llmUrgency = llm.priority || thread.urgencyLevel;
-    // Override buying intent with LLM score
-    const llmBuyScore = llm.buyingSignal?.score ?? thread.buyingIntent;
-    const llmKeywords =
-      llm.buyingSignal?.intent && llm.buyingSignal.intent !== "none"
-        ? [llm.buyingSignal.intent, ...thread.matchedKeywords]
-        : thread.matchedKeywords;
+    for (const email of thread.emails) {
+      const llm = analysisMap.get(email.id);
+      if (!llm) continue;
+
+      if (!selectedAnalysis || (llm.replyNeeded && !selectedAnalysis.replyNeeded)) {
+        selectedAnalysis = llm;
+      }
+
+      if (typeof llm.replyNeeded === "boolean") {
+        if (llm.replyNeeded === true) {
+          aiReplyNeeded = true;
+        } else if (aiReplyNeeded === undefined) {
+          aiReplyNeeded = false;
+        }
+      }
+
+      const order = { critical: 0, high: 1, medium: 2, low: 3 };
+      if (order[llm.priority] < order[llmUrgency]) {
+        llmUrgency = llm.priority;
+      }
+
+      const currentBuyScore = llm.buyingSignal?.score ?? 0;
+      if (currentBuyScore >= llmBuyScore) {
+        llmBuyScore = currentBuyScore;
+        llmKeywords =
+          llm.buyingSignal?.intent && llm.buyingSignal.intent !== "none"
+            ? [llm.buyingSignal.intent]
+            : llmKeywords;
+      }
+    }
+
+    if (!selectedAnalysis) return thread;
 
     return {
       ...thread,
       urgencyLevel: llmUrgency,
       buyingIntent: llmBuyScore,
       hasBuyIntent: llmBuyScore >= 2,
-      matchedKeywords: [...new Set(llmKeywords)],
+      matchedKeywords: llmKeywords,
+      replyNeeded: aiReplyNeeded !== undefined ? aiReplyNeeded : thread.replyNeeded,
+      aiSummary: selectedAnalysis.summary,
+      aiDraftReply:
+        selectedAnalysis.replyNeeded === true
+          ? selectedAnalysis.draftReply ?? null
+          : null,
+      aiActionRequired: selectedAnalysis.actionRequired ?? null,
     };
   });
 
@@ -586,16 +786,73 @@ export function enrichWithLLMResults(
     (t) => t.urgencyLevel === "critical"
   ).length || stats.criticalCount;
 
+  // --- Update internal threads with LLM data ---
+  const updatedInternalThreads = stats.internalThreads.map((thread) => {
+    // Check all emails in thread for AI analysis
+    let aiReplyNeeded: boolean | undefined = undefined;
+    let llmUrgency = thread.urgencyLevel;
+    let selectedAnalysis: LLMEmailAnalysis | undefined;
+    
+    for (const email of thread.emails) {
+      const llm = analysisMap.get(email.id);
+      if (llm) {
+        if (!selectedAnalysis || (llm.replyNeeded && !selectedAnalysis.replyNeeded)) {
+          selectedAnalysis = llm;
+        }
+        // Use AI's replyNeeded field directly - this is the source of truth
+        // Handle cached data that might not have replyNeeded field yet
+        if (typeof llm.replyNeeded === "boolean") {
+          if (llm.replyNeeded === true) {
+            aiReplyNeeded = true;
+          } else if (aiReplyNeeded === undefined) {
+            aiReplyNeeded = false;
+          }
+        } else {
+          // Fallback for old cached data: infer from actionRequired
+          const hasAction = llm.actionRequired !== null && llm.actionRequired !== "";
+          if (hasAction && aiReplyNeeded !== true) {
+            // Old cache: treat actionRequired as potential reply needed, but not definitive
+            // Keep undefined to allow keyword detection as fallback
+          }
+        }
+        // Use highest priority from AI
+        const order = { critical: 0, high: 1, medium: 2, low: 3 };
+        if (order[llm.priority] < order[llmUrgency]) {
+          llmUrgency = llm.priority;
+        }
+      }
+    }
+
+    return {
+      ...thread,
+      urgencyLevel: llmUrgency,
+      // Use AI's analysis if available, otherwise keep initial keyword-based detection
+      replyNeeded: aiReplyNeeded !== undefined ? aiReplyNeeded : thread.replyNeeded,
+      aiSummary: selectedAnalysis?.summary,
+      aiDraftReply:
+        selectedAnalysis?.replyNeeded === true
+          ? selectedAnalysis.draftReply ?? null
+          : null,
+      aiActionRequired: selectedAnalysis?.actionRequired ?? null,
+    };
+  });
+
   return {
     ...stats,
     unreadByCategory,
+    unreadByCategoryByScope,
     unrepliedByCategory,
+    unrepliedByCategoryByScope,
     buyingSignalEmails,
     clientThreads: updatedClientThreads,
+    internalThreads: updatedInternalThreads,
     totalBuyingSignals: buyingSignalEmails.length,
     urgentCount,
     criticalCount,
+    unreadTrendByScope: stats.unreadTrendByScope,
+    topSendersByScope: stats.topSendersByScope,
     executiveSummary: llmResult.executiveSummary,
+    attentionItems: llmResult.attentionItems,
     llmEnriched: true,
   };
 }

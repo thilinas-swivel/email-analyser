@@ -9,6 +9,7 @@ import {
 } from "@/lib/prompt-settings";
 import {
   ArrowLeft,
+  Calendar,
   Save,
   RotateCcw,
   Tag,
@@ -19,6 +20,7 @@ import {
   Plus,
   Check,
   Filter,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -90,6 +92,10 @@ export default function SettingsPage() {
 
   const updateField = (key: keyof PromptSettings, value: string) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateStartDate = (value: string) => {
+    setSettings((prev) => ({ ...prev, defaultAnalysisStartDate: value }));
   };
 
   const addKeyword = () => {
@@ -201,6 +207,72 @@ export default function SettingsPage() {
           emails. Changes take effect on the next dashboard refresh.
         </div>
 
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+          <div className="flex items-start gap-3 mb-3">
+            <Calendar className="w-5 h-5 text-cyan-400 mt-0.5" />
+            <div>
+              <h2 className="text-base font-semibold text-white">
+                Default Analysis Start Date
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">
+                Sets the default start date used when the dashboard loads. This controls how far back email analysis begins.
+              </p>
+            </div>
+          </div>
+
+          <div className="max-w-xs">
+            <label className="block text-xs font-medium text-slate-400 mb-2">
+              Start Date
+            </label>
+            <input
+              type="date"
+              value={settings.defaultAnalysisStartDate}
+              onChange={(e) => updateStartDate(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-cyan-500"
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              Default is March 1, 2026. After saving, refresh the dashboard or re-open it to use the new starting range.
+            </p>
+          </div>
+        </div>
+
+        {/* Internal Email Tracking Toggle */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <Users className="w-5 h-5 text-violet-400 mt-0.5" />
+              <div>
+                <h2 className="text-base font-semibold text-white">
+                  Track Internal Emails
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  When enabled, emails from your organization&apos;s domain (same domain as your email) 
+                  will appear in the Internal Email Tracker section. Disable to focus only on external communications.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() =>
+                setSettings((prev) => ({
+                  ...prev,
+                  trackInternalEmails: !prev.trackInternalEmails,
+                }))
+              }
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2 focus:ring-offset-slate-900 ${
+                settings.trackInternalEmails ? "bg-violet-600" : "bg-slate-700"
+              }`}
+              role="switch"
+              aria-checked={settings.trackInternalEmails}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  settings.trackInternalEmails ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
         {/* Prompt fields */}
         {FIELDS.map((field) => (
           <div
@@ -234,8 +306,8 @@ export default function SettingsPage() {
                 Custom Buying Keywords
               </h2>
               <p className="text-xs text-slate-400">
-                Additional keywords for the keyword-based buying signal detector
-                (supplements the built-in list)
+                Optional buying terms provided as extra guidance to the LLM
+                when evaluating intent (not a rule-based keyword scorer)
               </p>
             </div>
           </div>

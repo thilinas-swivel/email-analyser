@@ -1,6 +1,6 @@
 "use client";
 
-import { EmailCategory } from "@/lib/types";
+import { EmailCategory, ScopeBreakdown } from "@/lib/types";
 import {
   BarChart,
   Bar,
@@ -16,9 +16,65 @@ import { format } from "date-fns";
 
 interface Props {
   categories: EmailCategory[];
+  scopedCategories?: ScopeBreakdown<EmailCategory[]>;
+  showSplit?: boolean;
 }
 
-export default function UnrepliedSection({ categories }: Props) {
+function CategoryScopeList({ categories }: { categories: EmailCategory[] }) {
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+
+  if (categories.length === 0) {
+    return <p className="text-sm text-slate-500">No emails in this scope.</p>;
+  }
+
+  return (
+    <div className="space-y-1 max-h-56 overflow-y-auto pr-2">
+      {categories.map((cat) => (
+        <div key={cat.name}>
+          <button
+            onClick={() =>
+              setExpandedCategory(expandedCategory === cat.name ? null : cat.name)
+            }
+            className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-slate-800 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{ backgroundColor: cat.color }}
+              />
+              <span className="text-sm text-slate-300">{cat.name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-white">{cat.count}</span>
+              {expandedCategory === cat.name ? (
+                <ChevronUp className="w-4 h-4 text-slate-500" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-500" />
+              )}
+            </div>
+          </button>
+          {expandedCategory === cat.name && (
+            <div className="ml-6 mt-1 space-y-1">
+              {cat.emails.slice(0, 5).map((email) => (
+                <div key={email.id} className="p-2 bg-slate-800/50 rounded-lg">
+                  <p className="text-xs text-white truncate">{email.subject}</p>
+                  <p className="text-xs text-slate-500">
+                    {email.from.emailAddress.name} &middot; {format(new Date(email.receivedDateTime), "MMM d, h:mm a")}
+                  </p>
+                </div>
+              ))}
+              {cat.emails.length > 5 && (
+                <p className="text-xs text-slate-500 pl-2">+{cat.emails.length - 5} more</p>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function UnrepliedSection({ categories, scopedCategories, showSplit }: Props) {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   const total = categories.reduce((sum, c) => sum + c.count, 0);
@@ -39,6 +95,26 @@ export default function UnrepliedSection({ categories }: Props) {
         </div>
       </div>
 
+      {showSplit && scopedCategories ? (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {([
+            { label: "Internal", tone: "text-violet-300", categories: scopedCategories.internal },
+            { label: "External", tone: "text-cyan-300", categories: scopedCategories.external },
+          ] as const).map((scope) => {
+            const scopeTotal = scope.categories.reduce((sum, category) => sum + category.count, 0);
+            return (
+              <div key={scope.label} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className={`text-sm font-semibold ${scope.tone}`}>{scope.label}</h3>
+                  <span className="text-xs text-slate-500">{scopeTotal} awaiting response</span>
+                </div>
+                <CategoryScopeList categories={scope.categories} />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+      <>
       {/* Bar chart */}
       <div className="h-56 mb-4">
         <ResponsiveContainer width="100%" height="100%">
@@ -132,6 +208,8 @@ export default function UnrepliedSection({ categories }: Props) {
           </div>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

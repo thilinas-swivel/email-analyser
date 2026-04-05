@@ -1,9 +1,9 @@
 "use client";
 
 import { BuyingSignalEmail } from "@/lib/types";
-import { TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { TrendingUp, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 const PAGE_SIZE = 10;
 
@@ -13,8 +13,31 @@ interface Props {
 
 export default function BuyingSignalsSection({ emails }: Props) {
   const [page, setPage] = useState(0);
-  const totalPages = Math.max(1, Math.ceil(emails.length / PAGE_SIZE));
-  const pageEmails = emails.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Filter emails based on search query
+  const filteredEmails = useMemo(() => {
+    if (!searchQuery.trim()) return emails;
+    const query = searchQuery.toLowerCase();
+    return emails.filter((email) =>
+      email.subject.toLowerCase().includes(query) ||
+      email.from.emailAddress.name.toLowerCase().includes(query) ||
+      email.from.emailAddress.address.toLowerCase().includes(query) ||
+      email.senderCompany.toLowerCase().includes(query) ||
+      email.buyingIntent?.toLowerCase().includes(query) ||
+      email.buyingStage?.toLowerCase().includes(query) ||
+      email.bodyPreview?.toLowerCase().includes(query) ||
+      email.signals.some((s) => s.toLowerCase().includes(query))
+    );
+  }, [emails, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredEmails.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageEmails = filteredEmails.slice(
+    currentPage * PAGE_SIZE,
+    (currentPage + 1) * PAGE_SIZE
+  );
+  
   const getScoreBadge = (score: number) => {
     if (score >= 5)
       return {
@@ -53,21 +76,51 @@ export default function BuyingSignalsSection({ emails }: Props) {
     }
   };
 
-  const maxScore = Math.max(...emails.map((e) => e.signalScore), 1);
+  const maxScore = Math.max(...filteredEmails.map((e) => e.signalScore), 1);
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
-      <div className="flex items-center gap-3 mb-4 sm:mb-6">
-        <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center">
-          <TrendingUp className="w-5 h-5 text-emerald-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-500/10 rounded-lg flex items-center justify-center">
+            <TrendingUp className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              Buying Signals
+            </h2>
+            <p className="text-sm text-slate-400">
+              {filteredEmails.length === emails.length
+                ? `${emails.length} emails with potential buying intent`
+                : `${filteredEmails.length} of ${emails.length} emails`}
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-semibold text-white">
-            Buying Signals
-          </h2>
-          <p className="text-sm text-slate-400">
-            {emails.length} emails with potential buying intent
-          </p>
+        
+        {/* Search input */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Search sender, company, subject..."
+            value={searchQuery}
+            onChange={(e) => {
+              setPage(0);
+              setSearchQuery(e.target.value);
+            }}
+            className="w-full sm:w-64 pl-9 pr-9 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setPage(0);
+                setSearchQuery("");
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -76,6 +129,22 @@ export default function BuyingSignalsSection({ emails }: Props) {
           <p className="text-slate-500">
             No buying signals detected in recent emails.
           </p>
+        </div>
+      ) : filteredEmails.length === 0 ? (
+        <div className="text-center py-12">
+          <Search className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-500">
+            No emails match your search &quot;{searchQuery}&quot;
+          </p>
+          <button
+            onClick={() => {
+              setPage(0);
+              setSearchQuery("");
+            }}
+            className="mt-3 text-sm text-emerald-400 hover:text-emerald-300"
+          >
+            Clear search
+          </button>
         </div>
       ) : (
         <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
@@ -213,27 +282,25 @@ export default function BuyingSignalsSection({ emails }: Props) {
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
               <p className="text-sm text-slate-500">
-                Showing {page * PAGE_SIZE + 1}–
-                {Math.min((page + 1) * PAGE_SIZE, emails.length)} of{" "}
-                {emails.length}
+                Showing {currentPage * PAGE_SIZE + 1}–
+                {Math.min((currentPage + 1) * PAGE_SIZE, filteredEmails.length)} of{" "}
+                {filteredEmails.length}
               </p>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
+                  onClick={() => setPage(Math.max(0, currentPage - 1))}
+                  disabled={currentPage === 0}
                   className="flex items-center gap-1 text-sm text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:hover:bg-slate-800 disabled:hover:text-slate-400"
                 >
                   <ChevronLeft className="w-4 h-4" />
                   Prev
                 </button>
                 <span className="text-sm text-slate-400 min-w-[60px] text-center">
-                  {page + 1} / {totalPages}
+                  {currentPage + 1} / {totalPages}
                 </span>
                 <button
-                  onClick={() =>
-                    setPage((p) => Math.min(totalPages - 1, p + 1))
-                  }
-                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage(Math.min(totalPages - 1, currentPage + 1))}
+                  disabled={currentPage >= totalPages - 1}
                   className="flex items-center gap-1 text-sm text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors disabled:opacity-40 disabled:hover:bg-slate-800 disabled:hover:text-slate-400"
                 >
                   Next

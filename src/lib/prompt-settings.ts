@@ -18,6 +18,7 @@ IMPORTANT: Internal company emails, calendar invites, team updates, newsletters,
 - "medium": Regular business communication, can be addressed within a few days
 - "low": Informational, newsletters, routine updates, automated notifications`,
   executiveSummaryPrompt: `Write a 2-3 sentence executive briefing highlighting the most important items that need the executive's attention. Focus on: critical action items, high-value buying signals, urgent client issues, and strategic opportunities. Be concise and direct.`,
+  defaultAnalysisStartDate: "2026-03-01",
   customKeywords: [],
   noiseEmailFilters: [
     "noreply@",
@@ -41,6 +42,7 @@ IMPORTANT: Internal company emails, calendar invites, team updates, newsletters,
     "slack",
     "microsoft ",
   ],
+  trackInternalEmails: true,
 };
 
 export function loadSettings(): PromptSettings {

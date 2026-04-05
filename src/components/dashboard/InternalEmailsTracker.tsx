@@ -1,22 +1,24 @@
 "use client";
 
-import { ClientThread } from "@/lib/types";
+import { InternalThread } from "@/lib/types";
 import { format } from "date-fns";
 import {
-  Search,
-  Filter,
+  CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
   ChevronUp,
-  Sparkles,
   MessageCircle,
-  CheckCircle2,
+  Search,
+  Sparkles,
+  Users,
 } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 
 interface Props {
-  threads: ClientThread[];
+  threads: InternalThread[];
+  isEnriched?: boolean;
+  aiLoading?: boolean;
 }
 
 const URGENCY_BADGE: Record<
@@ -49,16 +51,21 @@ const URGENCY_BADGE: Record<
   },
 };
 
-type SortField = "urgency" | "lastReply" | "buyIntent";
+type SortField = "urgency" | "received" | "replyNeeded";
+type ReplyFilter = "all" | "needs-reply" | "no-reply-needed";
 
 const DEFAULT_PAGE_SIZE = 15;
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100];
 
-export default function ClientTrackerTable({ threads }: Props) {
+export default function InternalEmailsTracker({
+  threads,
+  isEnriched,
+  aiLoading,
+}: Props) {
   const [search, setSearch] = useState("");
   const [urgencyFilter, setUrgencyFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<SortField>("urgency");
-  const [buyIntentOnly, setBuyIntentOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<SortField>("replyNeeded");
+  const [replyFilter, setReplyFilter] = useState<ReplyFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [expandedThread, setExpandedThread] = useState<string | null>(null);
@@ -72,88 +79,106 @@ export default function ClientTrackerTable({ threads }: Props) {
     let result = threads;
 
     if (search) {
-      const q = search.toLowerCase();
+      const query = search.toLowerCase();
       result = result.filter(
-        (t) =>
-          t.clientName.toLowerCase().includes(q) ||
-          t.clientEmail.toLowerCase().includes(q) ||
-          t.company.toLowerCase().includes(q) ||
-          t.subject.toLowerCase().includes(q)
+        (thread) =>
+          thread.senderName.toLowerCase().includes(query) ||
+          thread.senderEmail.toLowerCase().includes(query) ||
+          thread.subject.toLowerCase().includes(query)
       );
     }
 
     if (urgencyFilter !== "all") {
-      result = result.filter((t) => t.urgencyLevel === urgencyFilter);
+      result = result.filter((thread) => thread.urgencyLevel === urgencyFilter);
     }
 
-    if (buyIntentOnly) {
-      result = result.filter((t) => t.hasBuyIntent);
+    if (replyFilter === "needs-reply") {
+      result = result.filter((thread) => thread.replyNeeded);
+    } else if (replyFilter === "no-reply-needed") {
+      result = result.filter((thread) => !thread.replyNeeded);
     }
 
-    const urgOrder: Record<string, number> = {
+    const urgencyOrder: Record<string, number> = {
       critical: 0,
       high: 1,
       medium: 2,
       low: 3,
     };
-    result = [...result].sort((a, b) => {
-      if (sortBy === "urgency")
-        return urgOrder[a.urgencyLevel] - urgOrder[b.urgencyLevel];
-      if (sortBy === "lastReply")
-        return b.daysSinceLastReply - a.daysSinceLastReply;
-      return b.buyingIntent - a.buyingIntent;
-    });
 
-    return result;
-  }, [threads, search, urgencyFilter, sortBy, buyIntentOnly]);
+    return [...result].sort((left, right) => {
+      if (sortBy === "replyNeeded") {
+        if (left.replyNeeded !== right.replyNeeded) {
+          return left.replyNeeded ? -1 : 1;
+        }
+
+        return urgencyOrder[left.urgencyLevel] - urgencyOrder[right.urgencyLevel];
+      }
+
+      if (sortBy === "urgency") {
+        return urgencyOrder[left.urgencyLevel] - urgencyOrder[right.urgencyLevel];
+      }
+
+      return right.daysSinceReceived - left.daysSinceReceived;
+    });
+  }, [threads, search, urgencyFilter, sortBy, replyFilter]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const startIndex = (currentPage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
   const paginatedThreads = filtered.slice(startIndex, endIndex);
-
-  const maxBuyIntent = Math.max(...threads.map((t) => t.buyingIntent), 1);
+  const needsReplyCount = threads.filter((thread) => thread.replyNeeded).length;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-6">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-4 sm:mb-5">
-        <div className="w-10 h-10 bg-indigo-500/10 rounded-lg flex items-center justify-center">
-          <Filter className="w-5 h-5 text-indigo-400" />
+        <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center">
+          <Users className="w-5 h-5 text-violet-400" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-white">
-            Client Email Tracker
-          </h2>
+          <h2 className="text-lg font-semibold text-white">Internal Email Tracker</h2>
           <p className="text-sm text-slate-400">
-            {threads.length} client threads &middot; {filtered.length} shown
+            {threads.length} internal threads &middot; <span className="text-amber-400">{needsReplyCount} need reply</span>
+            {aiLoading && <span className="text-slate-500"> &middot; AI reviewing full email bodies</span>}
+            {!aiLoading && isEnriched && <span className="text-emerald-400"> &middot; AI enriched</span>}
           </p>
         </div>
       </div>
 
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
         <div className="relative flex-1 min-w-37.5 sm:min-w-50">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search clients..."
+            placeholder="Search team members..."
             value={search}
-            onChange={(e) => {
+            onChange={(event) => {
               resetView();
-              setSearch(e.target.value);
+              setSearch(event.target.value);
             }}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
           />
         </div>
 
         <select
-          value={urgencyFilter}
-          onChange={(e) => {
+          value={replyFilter}
+          onChange={(event) => {
             resetView();
-            setUrgencyFilter(e.target.value);
+            setReplyFilter(event.target.value as ReplyFilter);
           }}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
+        >
+          <option value="all">All Emails</option>
+          <option value="needs-reply">Needs Reply</option>
+          <option value="no-reply-needed">No Reply Needed</option>
+        </select>
+
+        <select
+          value={urgencyFilter}
+          onChange={(event) => {
+            resetView();
+            setUrgencyFilter(event.target.value);
+          }}
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         >
           <option value="all">All Urgency</option>
           <option value="critical">Critical</option>
@@ -164,39 +189,26 @@ export default function ClientTrackerTable({ threads }: Props) {
 
         <select
           value={sortBy}
-          onChange={(e) => {
+          onChange={(event) => {
             resetView();
-            setSortBy(e.target.value as SortField);
+            setSortBy(event.target.value as SortField);
           }}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
         >
+          <option value="replyNeeded">Sort: Reply Needed</option>
           <option value="urgency">Sort: Urgency</option>
-          <option value="lastReply">Sort: Last Reply</option>
-          <option value="buyIntent">Sort: Buy Intent</option>
+          <option value="received">Sort: Received</option>
         </select>
-
-        <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={buyIntentOnly}
-            onChange={(e) => {
-              resetView();
-              setBuyIntentOnly(e.target.checked);
-            }}
-            className="rounded bg-slate-800 border-slate-600 text-indigo-500 focus:ring-indigo-500"
-          />
-          Buy Intent Only
-        </label>
 
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <span>Rows</span>
           <select
             value={pageSize}
-            onChange={(e) => {
+            onChange={(event) => {
               resetView();
-              setPageSize(Number(e.target.value));
+              setPageSize(Number(event.target.value));
             }}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500"
           >
             {PAGE_SIZE_OPTIONS.map((option) => (
               <option key={option} value={option}>
@@ -207,70 +219,34 @@ export default function ClientTrackerTable({ threads }: Props) {
         </div>
       </div>
 
-      {/* Table */}
       {filtered.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-slate-500">No matching client threads.</p>
+          <p className="text-slate-500">No matching internal threads.</p>
         </div>
       ) : (
         <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
-          <table className="w-full min-w-230">
+          <table className="w-full min-w-225">
             <thead>
               <tr className="border-b border-slate-800">
-                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">
-                  Client
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">
-                  Reply
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">
-                  Urgency
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">
-                  Last Reply
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4 min-w-45">
-                  Buy Intent
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">
-                  Matched Keywords
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 pb-3">
-                  Last Message
-                </th>
+                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">Reply Status</th>
+                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">From</th>
+                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">Urgency</th>
+                <th className="text-left text-xs font-medium text-slate-400 pb-3 pr-4">Received</th>
+                <th className="text-left text-xs font-medium text-slate-400 pb-3">Preview</th>
               </tr>
             </thead>
             <tbody>
               {paginatedThreads.map((thread) => {
                 const badge = URGENCY_BADGE[thread.urgencyLevel];
-                const intentPct = Math.min(
-                  (thread.buyingIntent / maxBuyIntent) * 100,
-                  100
-                );
-                const threadKey = thread.clientEmail;
-                const isExpanded = expandedThread === threadKey;
+                const threadKey = thread.senderEmail + thread.receivedDate;
                 const hasAiDetails = Boolean(
                   thread.aiSummary || thread.aiDraftReply || thread.aiActionRequired
                 );
-                const intentColor =
-                  thread.buyingIntent >= 5
-                    ? "bg-emerald-500"
-                    : thread.buyingIntent >= 3
-                      ? "bg-amber-500"
-                      : "bg-slate-600";
+                const isExpanded = expandedThread === threadKey;
 
                 return (
-                  <Fragment key={thread.clientEmail}>
+                  <Fragment key={threadKey}>
                     <tr className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
-                      <td className="py-3 pr-4 align-top">
-                        <p className="text-sm text-white font-medium truncate max-w-45">
-                          {thread.clientName}
-                        </p>
-                        <p className="text-xs text-slate-500 truncate max-w-45">
-                          {thread.subject}
-                        </p>
-                      </td>
-
                       <td className="py-3 pr-4 align-top">
                         {thread.replyNeeded ? (
                           <div className="flex items-center gap-2">
@@ -286,13 +262,14 @@ export default function ClientTrackerTable({ threads }: Props) {
                             <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center">
                               <CheckCircle2 className="w-4 h-4 text-slate-500" />
                             </div>
-                            <span className="text-[11px] font-medium text-slate-500">
-                              FYI Only
-                            </span>
+                            <span className="text-[11px] font-medium text-slate-500">FYI Only</span>
                           </div>
                         )}
                       </td>
-
+                      <td className="py-3 pr-4 align-top">
+                        <p className="text-sm text-white font-medium truncate max-w-45">{thread.senderName}</p>
+                        <p className="text-xs text-slate-500 truncate max-w-45">{thread.subject}</p>
+                      </td>
                       <td className="py-3 pr-4 align-top">
                         <span
                           className={`inline-block text-[10px] font-bold tracking-wide px-2 py-0.5 rounded border ${badge.color} ${badge.bg} ${badge.border}`}
@@ -300,65 +277,23 @@ export default function ClientTrackerTable({ threads }: Props) {
                           {badge.label}
                         </span>
                       </td>
-
                       <td className="py-3 pr-4 whitespace-nowrap align-top">
                         <p className="text-sm text-white">
-                          {thread.daysSinceLastReply === 0
-                            ? "Today"
-                            : `${thread.daysSinceLastReply}d ago`}
+                          {thread.daysSinceReceived === 0 ? "Today" : `${thread.daysSinceReceived}d ago`}
                         </p>
                         <p className="text-xs text-slate-500">
-                          {format(new Date(thread.lastReplyDate), "MMM d, yyyy")}
+                          {format(new Date(thread.receivedDate), "MMM d, yyyy")}
                         </p>
                       </td>
-
-                      <td className="py-3 pr-4 align-top">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${intentColor}`}
-                              style={{ width: `${intentPct}%` }}
-                            />
-                          </div>
-                          <span className="text-xs text-slate-300 min-w-5 text-right">
-                            {thread.buyingIntent}
-                          </span>
-                          {thread.hasBuyIntent && (
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">
-                              BUY
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="py-3 pr-4 align-top">
-                        <div className="flex flex-wrap gap-1 max-w-50">
-                          {thread.matchedKeywords.length > 0 ? (
-                            thread.matchedKeywords.slice(0, 4).map((kw) => (
-                              <span
-                                key={kw}
-                                className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded"
-                              >
-                                {kw}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-slate-600">—</span>
-                          )}
-                        </div>
-                      </td>
-
                       <td className="py-3 align-top">
                         <div className="space-y-2">
-                          <p className="text-xs text-slate-400 line-clamp-2 max-w-62.5">
+                          <p className="text-xs text-slate-400 line-clamp-2 max-w-105">
                             {thread.lastMessage || "—"}
                           </p>
                           {thread.aiSummary && (
-                            <div className="flex items-start gap-2 max-w-62.5 rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
+                            <div className="flex items-start gap-2 max-w-105 rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
                               <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-indigo-300" />
-                              <p className="text-xs text-indigo-100 line-clamp-2">
-                                {thread.aiSummary}
-                              </p>
+                              <p className="text-xs text-indigo-100 line-clamp-2">{thread.aiSummary}</p>
                             </div>
                           )}
                           {hasAiDetails && (
@@ -383,7 +318,7 @@ export default function ClientTrackerTable({ threads }: Props) {
                     </tr>
                     {isExpanded && hasAiDetails && (
                       <tr className="border-b border-slate-800/50 bg-slate-950/40">
-                        <td colSpan={7} className="px-4 py-4 sm:px-6">
+                        <td colSpan={5} className="px-4 py-4 sm:px-6">
                           <div className="grid gap-4 lg:grid-cols-2">
                             <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">
                               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-indigo-300">
@@ -397,9 +332,7 @@ export default function ClientTrackerTable({ threads }: Props) {
                                   <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">
                                     Recommended Action
                                   </p>
-                                  <p className="mt-1 text-sm text-amber-100">
-                                    {thread.aiActionRequired}
-                                  </p>
+                                  <p className="mt-1 text-sm text-amber-100">{thread.aiActionRequired}</p>
                                 </div>
                               )}
                             </div>
@@ -420,8 +353,7 @@ export default function ClientTrackerTable({ threads }: Props) {
               })}
             </tbody>
           </table>
-          
-          {/* Pagination */}
+
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-800">
               <p className="text-sm text-slate-400">
@@ -431,7 +363,7 @@ export default function ClientTrackerTable({ threads }: Props) {
                 <button
                   onClick={() => {
                     setExpandedThread(null);
-                    setCurrentPage((p) => Math.max(1, p - 1));
+                    setCurrentPage((page) => Math.max(1, page - 1));
                   }}
                   disabled={currentPage === 1}
                   className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
@@ -439,17 +371,19 @@ export default function ClientTrackerTable({ threads }: Props) {
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <div className="flex items-center gap-1">
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => {
                     let pageNum: number;
+
                     if (totalPages <= 5) {
-                      pageNum = i + 1;
+                      pageNum = index + 1;
                     } else if (currentPage <= 3) {
-                      pageNum = i + 1;
+                      pageNum = index + 1;
                     } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
+                      pageNum = totalPages - 4 + index;
                     } else {
-                      pageNum = currentPage - 2 + i;
+                      pageNum = currentPage - 2 + index;
                     }
+
                     return (
                       <button
                         key={pageNum}
@@ -459,7 +393,7 @@ export default function ClientTrackerTable({ threads }: Props) {
                         }}
                         className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
                           currentPage === pageNum
-                            ? "bg-indigo-500 text-white"
+                            ? "bg-violet-500 text-white"
                             : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                         }`}
                       >
@@ -471,7 +405,7 @@ export default function ClientTrackerTable({ threads }: Props) {
                 <button
                   onClick={() => {
                     setExpandedThread(null);
-                    setCurrentPage((p) => Math.min(totalPages, p + 1));
+                    setCurrentPage((page) => Math.min(totalPages, page + 1));
                   }}
                   disabled={currentPage === totalPages}
                   className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

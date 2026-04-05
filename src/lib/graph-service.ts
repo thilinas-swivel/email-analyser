@@ -37,7 +37,7 @@ export async function getUnreadEmails(
     .api("/me/messages")
     .filter("isRead eq false")
     .select(
-      "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,importance,categories,hasAttachments,conversationId,flag"
+      "id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,importance,categories,hasAttachments,conversationId,flag"
     )
     .orderby("receivedDateTime desc")
     .top(top)
@@ -64,7 +64,7 @@ export async function getAllRecentEmails(
     .api("/me/messages")
     .filter(`receivedDateTime ge ${startStr} and receivedDateTime le ${endStr}`)
     .select(
-      "id,subject,from,toRecipients,receivedDateTime,bodyPreview,isRead,importance,categories,hasAttachments,conversationId,flag,body"
+      "id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,isRead,importance,categories,hasAttachments,conversationId,flag,body"
     )
     .orderby("receivedDateTime desc")
     .top(pageSize)

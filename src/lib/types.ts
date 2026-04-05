@@ -13,6 +13,12 @@ export interface Email {
       address: string;
     };
   }[];
+  ccRecipients?: {
+    emailAddress: {
+      name: string;
+      address: string;
+    };
+  }[];
   receivedDateTime: string;
   bodyPreview: string;
   isRead: boolean;
@@ -34,6 +40,22 @@ export interface EmailCategory {
   count: number;
   color: string;
   emails: Email[];
+}
+
+export interface SenderStat {
+  name: string;
+  email: string;
+  count: number;
+}
+
+export interface TrendPoint {
+  date: string;
+  count: number;
+}
+
+export interface ScopeBreakdown<T> {
+  internal: T;
+  external: T;
 }
 
 export interface UnrepliedEmail extends Email {
@@ -63,11 +85,40 @@ export interface ClientThread {
   daysSinceLastReply: number;
   lastReplyDate: string;
   replyStatus: string;
+  replyNeeded?: boolean;
   buyingIntent: number;
   hasBuyIntent: boolean;
   matchedKeywords: string[];
   lastMessage: string;
+  aiSummary?: string;
+  aiDraftReply?: string | null;
+  aiActionRequired?: string | null;
   emails: UnrepliedEmail[];
+}
+
+export interface InternalThread {
+  senderName: string;
+  senderEmail: string;
+  department: string;
+  subject: string;
+  urgencyLevel: "critical" | "high" | "medium" | "low";
+  daysSinceReceived: number;
+  receivedDate: string;
+  replyNeeded: boolean;
+  hasReplied: boolean;
+  lastMessage: string;
+  aiSummary?: string;
+  aiDraftReply?: string | null;
+  aiActionRequired?: string | null;
+  emails: UnrepliedEmail[];
+}
+
+export interface AttentionItem {
+  priority: "critical" | "high" | "medium";
+  title: string;
+  description: string;
+  emailCount: number;
+  senders: string[];
 }
 
 export interface DashboardStats {
@@ -82,10 +133,16 @@ export interface DashboardStats {
   unrepliedByCategory: EmailCategory[];
   buyingSignalEmails: BuyingSignalEmail[];
   clientThreads: ClientThread[];
-  unreadTrend: { date: string; count: number }[];
-  topSenders: { name: string; email: string; count: number }[];
+  internalThreads: InternalThread[];
+  unreadTrend: TrendPoint[];
+  unreadTrendByScope: ScopeBreakdown<TrendPoint[]>;
+  topSenders: SenderStat[];
+  topSendersByScope: ScopeBreakdown<SenderStat[]>;
   importanceDistribution: { name: string; value: number }[];
+  unreadByCategoryByScope: ScopeBreakdown<EmailCategory[]>;
+  unrepliedByCategoryByScope: ScopeBreakdown<EmailCategory[]>;
   executiveSummary?: string;
+  attentionItems?: AttentionItem[];
   llmEnriched?: boolean;
 }
 
@@ -94,9 +151,11 @@ export interface PromptSettings {
   buyingSignalPrompt: string;
   priorityPrompt: string;
   executiveSummaryPrompt: string;
+  defaultAnalysisStartDate: string;
   customKeywords: string[];
   noiseEmailFilters: string[];
   noiseNameFilters: string[];
+  trackInternalEmails: boolean;
 }
 
 export interface UserProfile {

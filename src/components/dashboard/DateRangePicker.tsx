@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Calendar, ChevronDown } from "lucide-react";
-import { format, subMonths, subDays, startOfYear } from "date-fns";
+import { format, subMonths, subDays, startOfYear, isValid } from "date-fns";
 
 export interface DateRange {
   start: Date;
@@ -25,6 +25,21 @@ export function getDefaultRange(): DateRange {
     start: subMonths(now, 1),
     end: now,
     label: "Last Month",
+  };
+}
+
+export function getRangeFromStartDate(startDate: string): DateRange {
+  const now = new Date();
+  const parsedStart = new Date(`${startDate}T00:00:00`);
+
+  if (!isValid(parsedStart) || parsedStart > now) {
+    return getDefaultRange();
+  }
+
+  return {
+    start: parsedStart,
+    end: now,
+    label: `Since ${format(parsedStart, "MMM d, yyyy")}`,
   };
 }
 
@@ -90,7 +105,13 @@ export default function DateRangePicker({ value, onChange }: Props) {
   return (
     <div className="relative" ref={ref}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) {
+            setCustomStart(toDateInputStr(value.start));
+            setCustomEnd(toDateInputStr(value.end));
+          }
+          setOpen((o) => !o);
+        }}
         className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm py-2 px-3 rounded-lg transition-colors border border-slate-700"
       >
         <Calendar className="w-4 h-4 text-slate-400" />
