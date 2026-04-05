@@ -179,13 +179,13 @@ function createSnapshotStats(stats: DashboardStats): DashboardStats {
       ...thread,
       emails: thread.emails
         .slice(0, SNAPSHOT_THREAD_EMAILS_LIMIT)
-        .map(stripEmailForSnapshot),
+        .map((e) => ({ ...e, body: undefined })),
     })),
     internalThreads: stats.internalThreads.slice(0, SNAPSHOT_THREADS_LIMIT).map((thread) => ({
       ...thread,
       emails: thread.emails
         .slice(0, SNAPSHOT_THREAD_EMAILS_LIMIT)
-        .map(stripEmailForSnapshot),
+        .map((e) => ({ ...e, body: undefined })),
     })),
   };
 }
