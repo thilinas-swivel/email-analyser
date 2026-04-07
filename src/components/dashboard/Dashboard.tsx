@@ -20,7 +20,7 @@ import InternalEmailsTracker from "./InternalEmailsTracker";
 import TrendChart from "./TrendChart";
 import TopSendersTable from "./TopSendersTable";
 import ExecutiveSummary from "./ExecutiveSummary";
-import { LogIn, RefreshCw } from "lucide-react";
+import { LogIn, RefreshCw, BarChart3, TrendingUp, Clock } from "lucide-react";
 import Image from "next/image";
 
 const DASHBOARD_SNAPSHOT_VERSION = 2;
@@ -596,35 +596,83 @@ export default function Dashboard() {
 
   if (!isAuthenticated && !inTeams) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950">
-        <div className="max-w-md w-full mx-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
-            <div className="w-24 h-24 mx-auto mb-6">
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 relative overflow-hidden">
+        {/* Background glow effects */}
+        <div className="absolute top-1/4 -left-32 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl" />
+
+        <div className="max-w-md w-full mx-4 relative z-10">
+          <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl p-8 text-center">
+            {/* Logo */}
+            <div className="w-20 h-20 mx-auto mb-5">
               <Image
                 src="/logo.png"
                 alt="MailSense"
-                width={96}
-                height={96}
-                className="rounded-2xl w-24 h-24 ring-1 ring-slate-700 shadow-xl shadow-indigo-500/20"
+                width={80}
+                height={80}
+                className="rounded-2xl w-20 h-20 ring-1 ring-slate-700 shadow-xl shadow-indigo-500/20"
                 priority
                 unoptimized
               />
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">
+
+            {/* Title & tagline */}
+            <h1 className="text-2xl font-bold text-white mb-1">
               MailSense
             </h1>
-            <p className="text-slate-400 mb-8">
+            <p className="text-sm text-blue-400 font-medium mb-4">
+              AI-Powered Email Intelligence
+            </p>
+            <p className="text-slate-400 text-sm mb-6">
               Sign in with your Microsoft account to access your email dashboard
               and analytics.
             </p>
+
+            {/* Sign in button */}
             <button
               onClick={handleLogin}
-              className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors"
+              className="w-full flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors mb-6"
             >
               <LogIn className="w-5 h-5" />
               Sign in with Microsoft
             </button>
+
+            {/* Feature highlights */}
+            <div className="border-t border-slate-800 pt-5 space-y-3 text-left">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-600/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <BarChart3 className="w-4 h-4 text-blue-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-200">Smart Analytics</p>
+                  <p className="text-xs text-slate-500">AI-categorized emails with priority scoring</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-600/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <TrendingUp className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-200">Buying Signals</p>
+                  <p className="text-xs text-slate-500">Detect new business opportunities in your inbox</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-200">Reply Tracking</p>
+                  <p className="text-xs text-slate-500">Never miss an important email that needs a response</p>
+                </div>
+              </div>
+            </div>
           </div>
+
+          {/* Attribution */}
+          <p className="text-center text-xs text-slate-600 mt-4">
+            Powered by Swivel Group
+          </p>
         </div>
       </div>
     );

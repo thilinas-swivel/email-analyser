@@ -206,8 +206,31 @@ export function analyzeEmails(
 
   // --- Unreplied analysis ---
   const sentConversationIds = new Set(sentEmails.map((e) => e.conversationId));
+
+  // Build noise filter for excluding automated emails from unreplied metrics
+  const unrepliedEmailFilters = (settings?.noiseEmailFilters ?? [
+    "noreply@", "no-reply@", "donotreply@",
+    "notifications@", "notification@", "mailer-daemon@", "postmaster@",
+    "microsoft.com", "teams.microsoft",
+    "slack.com", "slackbot", "powerbi", "sharepoint",
+    "github.com", "amazonaws.com", "aws.amazon.com",
+    "digitalocean.com", "supabase.com", "supabase.io",
+    "anthropic.com", "read.ai", "readai.com",
+    "mainfreight.com", "rooster.jobs", "azure.com",
+  ]).map((f) => f.toLowerCase());
+  const unrepliedNameFilters = (settings?.noiseNameFilters ?? [
+    "in teams", "via teams", "power bi", "slack", "microsoft ",
+  ]).map((f) => f.toLowerCase());
+
+  const isNoiseForUnreplied = (e: Email): boolean => {
+    const addr = (e.from?.emailAddress?.address || "").toLowerCase();
+    const name = (e.from?.emailAddress?.name || "").toLowerCase();
+    return unrepliedEmailFilters.some((f) => addr.includes(f)) ||
+           unrepliedNameFilters.some((f) => name.includes(f));
+  };
+
   const incomingEmails = allEmails.filter(
-    (e) => !sentConversationIds.has(e.conversationId)
+    (e) => !sentConversationIds.has(e.conversationId) && !isNoiseForUnreplied(e)
   );
 
   const unrepliedCategoryMap = new Map<string, Email[]>();
@@ -314,7 +337,7 @@ export function analyzeEmails(
         daysSinceLastReply: daysSince,
         lastReplyDate: latest.receivedDateTime,
         replyStatus: daysSince === 0 ? "Awaiting your reply" : "Awaiting your reply",
-        replyNeeded: true,
+        replyNeeded: false,
         buyingIntent: 0,
         hasBuyIntent: false,
         matchedKeywords: [],
@@ -398,9 +421,6 @@ export function analyzeEmails(
           },
           "low"
         );
-        // Check if any email in thread needs reply
-      const needsReply = emails.some(detectReplyNeeded);
-
       return {
         senderName: getSenderName(latest),
         senderEmail: addr,
@@ -409,7 +429,7 @@ export function analyzeEmails(
         urgencyLevel: highestUrgency,
         daysSinceReceived: daysSince,
         receivedDate: latest.receivedDateTime,
-        replyNeeded: needsReply,
+        replyNeeded: false,
         hasReplied: false, // These are unreplied by definition
         lastMessage: latest.bodyPreview || "",
         emails,
@@ -866,6 +886,14 @@ export function enrichWithLLMResults(
     };
   });
 
+  // --- Recalculate unreplied stats using AI replyNeeded ---
+  const replyNeededClientThreads = updatedClientThreads.filter((t) => t.replyNeeded);
+  const replyNeededInternalThreads = updatedInternalThreads.filter((t) => t.replyNeeded);
+  const totalUnreplied = replyNeededClientThreads.length + replyNeededInternalThreads.length;
+  const awaitingReplyOver2d =
+    replyNeededClientThreads.filter((t) => t.daysSinceLastReply > 2).length +
+    replyNeededInternalThreads.filter((t) => t.daysSinceReceived > 2).length;
+
   return {
     ...stats,
     unreadByCategory,
@@ -876,6 +904,8 @@ export function enrichWithLLMResults(
     clientThreads: updatedClientThreads,
     internalThreads: updatedInternalThreads,
     totalBuyingSignals: buyingSignalEmails.length,
+    totalUnreplied,
+    awaitingReplyOver2d,
     urgentCount,
     criticalCount,
     unreadTrendByScope: stats.unreadTrendByScope,
