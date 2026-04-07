@@ -365,6 +365,20 @@ export default function Dashboard() {
       try {
         const userEmailLower = userProfile.mail.toLowerCase();
 
+        // Build noise filter to exclude automated/service emails from Claude analysis
+        const noiseEmailFilters = (promptSettings.noiseEmailFilters || []).map((f) => f.toLowerCase());
+        const noiseNameFilters = (promptSettings.noiseNameFilters || []).map((f) => f.toLowerCase());
+        const isNoiseEmail = (e: Email): boolean => {
+          const addr = (e.from?.emailAddress?.address || "").toLowerCase();
+          const name = (e.from?.emailAddress?.name || "").toLowerCase();
+          if (noiseEmailFilters.some((f) => addr.includes(f))) return true;
+          if (noiseNameFilters.some((f) => name.includes(f))) return true;
+          return false;
+        };
+
+        // Filter out noise emails — they don't need Claude analysis
+        const analyzableEmails = allEmails.filter((e) => !isNoiseEmail(e));
+
         // Collect every email ID that appears in a tracker thread so they
         // are guaranteed to be sent to Claude regardless of the overall cap.
         const trackerEmailIds = new Set<string>();
@@ -381,7 +395,7 @@ export default function Dashboard() {
         const trackerEmails: Email[] = [];
         const otherUnreplied: Email[] = [];
         const replied: Email[] = [];
-        for (const e of allEmails) {
+        for (const e of analyzableEmails) {
           if (trackerEmailIds.has(e.id)) {
             trackerEmails.push(e);
           } else if (!sentConvoIds.has(e.conversationId)) {
@@ -394,7 +408,10 @@ export default function Dashboard() {
         const top500 = prioritizedEmails.slice(0, 500);
 
         // --- Phase 2a: Check cache (lightweight — IDs only) ---
-        const allEmailIds = allEmails.map((e) => e.id);
+        // Only check/analyze non-noise emails
+        const allEmailIds = analyzableEmails.map((e) => e.id);
+
+        console.log(`Emails: ${allEmails.length} total, ${analyzableEmails.length} after noise filter (${allEmails.length - analyzableEmails.length} noise excluded)`);
 
         const cacheRes = await fetch("/api/analyze", {
           method: "POST",
