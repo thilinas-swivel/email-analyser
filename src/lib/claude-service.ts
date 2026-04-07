@@ -52,8 +52,8 @@ export interface LLMBatchResult {
   attentionItems?: AttentionItem[];
 }
 
-const MAX_EMAILS_PER_BATCH = 5;
-const MAX_BATCH_CHARS = 45000;
+const MAX_EMAILS_PER_BATCH = 20;
+const MAX_BATCH_CHARS = 80000;
 
 function estimateEmailSize(email: EmailForAnalysis): number {
   return (
@@ -155,9 +155,18 @@ For each email provide:
 - "priority": "critical", "high", "medium", or "low" — based on business impact for a C-suite executive
 - "sentiment": "positive", "neutral", "negative", or "urgent"
 - "buyingSignal": an object with:
-  - "score": 0-10 (0 = no buying intent, 10 = ready to purchase)
-  - "intent": brief description of the buying intent, or "none"
+  - "score": 0-10 (0 = no buying intent, 10 = ready to engage on new work)
+  - "intent": brief description of the new business opportunity, or "none"
   - "stage": "no-signal", "awareness", "consideration", "decision", or "purchase"
+  
+  CRITICAL for buyingSignal scoring — a buying signal means a NEW or POTENTIAL client is exploring new project requirements or seeking new solutions:
+  * Score 0 for: meeting invitations, calendar scheduling, Teams/Zoom links, routine meetings
+  * Score 0 for: existing project updates, ongoing BAU work, status reports with current clients
+  * Score 0 for: internal emails, newsletters, automated notifications, service alerts
+  * Score 0 for: forwarded meeting invites without new project context
+  * Score 0 for: routine check-ins about current/existing work
+  * Only score > 0 when an EXTERNAL party is actively exploring NEW work: new project requirements, new solution needs, new business inquiries, new engagement discussions, capability exploration, RFP/RFI, new contract/budget discussions
+  * The key question: Is the sender seeking NEW assistance, NEW solutions, or discussing NEW project requirements? If the work already exists and this is just ongoing communication, score 0
 - "actionRequired": a brief recommended action, or null if no action needed
 - "replyNeeded": true/false - Determine if the USER BEING ANALYZED needs to reply. Consider:
   
@@ -239,7 +248,7 @@ export async function analyzeWithClaude(
 
     const response = await anthropic.messages.create({
       model: CLAUDE_MODEL,
-      max_tokens: 8192,
+      max_tokens: 16384,
       messages: [{ role: "user", content: prompt }],
     });
 

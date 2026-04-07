@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useMsal } from "@azure/msal-react";
 import { PromptSettings } from "@/lib/types";
 import {
   loadSettings,
-  saveSettings,
+  saveSettingsAsync,
+  loadSettingsAsync,
   DEFAULT_SETTINGS,
 } from "@/lib/prompt-settings";
 import {
@@ -68,24 +70,46 @@ const FIELDS: FieldConfig[] = [
 ];
 
 export default function SettingsPage() {
+  const { accounts } = useMsal();
+  const userEmail = accounts[0]?.username;
+
   const [settings, setSettings] = useState<PromptSettings>(() => {
     if (typeof window === "undefined") return DEFAULT_SETTINGS;
-    return loadSettings();
+    return loadSettings(userEmail);
   });
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [newKeyword, setNewKeyword] = useState("");
   const [newEmailFilter, setNewEmailFilter] = useState("");
   const [newNameFilter, setNewNameFilter] = useState("");
 
-  const handleSave = () => {
-    saveSettings(settings);
+  // Load settings from server once user email is available
+  useEffect(() => {
+    if (!userEmail) return;
+    let cancelled = false;
+    loadSettingsAsync(userEmail).then((s) => {
+      if (!cancelled) setSettings(s);
+    });
+    return () => { cancelled = true; };
+  }, [userEmail]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    if (userEmail) {
+      await saveSettingsAsync(settings, userEmail);
+    }
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setSettings(DEFAULT_SETTINGS);
-    saveSettings(DEFAULT_SETTINGS);
+    setSaving(true);
+    if (userEmail) {
+      await saveSettingsAsync(DEFAULT_SETTINGS, userEmail);
+    }
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -178,16 +202,24 @@ export default function SettingsPage() {
             </button>
             <button
               onClick={handleSave}
+              disabled={saving}
               className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors ${
                 saved
                   ? "bg-emerald-600 text-white"
-                  : "bg-blue-600 hover:bg-blue-500 text-white"
+                  : saving
+                    ? "bg-blue-600/50 text-white/70 cursor-wait"
+                    : "bg-blue-600 hover:bg-blue-500 text-white"
               }`}
             >
               {saved ? (
                 <>
                   <Check className="w-4 h-4" />
                   Saved
+                </>
+              ) : saving ? (
+                <>
+                  <Save className="w-4 h-4 animate-pulse" />
+                  Saving...
                 </>
               ) : (
                 <>

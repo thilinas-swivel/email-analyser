@@ -13,6 +13,8 @@ export interface DateRange {
 interface Props {
   value: DateRange;
   onChange: (range: DateRange) => void;
+  /** Earliest selectable date (from settings). Presets and custom ranges are clamped to this. */
+  minDate?: Date;
 }
 
 function toDateInputStr(d: Date): string {
@@ -25,6 +27,16 @@ export function getDefaultRange(): DateRange {
     start: subMonths(now, 1),
     end: now,
     label: "Last Month",
+  };
+}
+
+/** Returns a \"This Week\" range (last 7 days from now). */
+export function getCurrentWeekRange(): DateRange {
+  const now = new Date();
+  return {
+    start: subDays(now, 7),
+    end: now,
+    label: "This Week",
   };
 }
 
@@ -44,6 +56,10 @@ export function getRangeFromStartDate(startDate: string): DateRange {
 }
 
 const PRESETS: { label: string; getRange: () => Omit<DateRange, "label"> }[] = [
+  {
+    label: "This Week",
+    getRange: () => ({ start: subDays(new Date(), 7), end: new Date() }),
+  },
   {
     label: "Last 7 Days",
     getRange: () => ({ start: subDays(new Date(), 7), end: new Date() }),
@@ -66,7 +82,7 @@ const PRESETS: { label: string; getRange: () => Omit<DateRange, "label"> }[] = [
   },
 ];
 
-export default function DateRangePicker({ value, onChange }: Props) {
+export default function DateRangePicker({ value, onChange, minDate }: Props) {
   const [open, setOpen] = useState(false);
   const [customStart, setCustomStart] = useState(toDateInputStr(value.start));
   const [customEnd, setCustomEnd] = useState(toDateInputStr(value.end));
@@ -84,23 +100,32 @@ export default function DateRangePicker({ value, onChange }: Props) {
 
   const applyPreset = (preset: (typeof PRESETS)[number]) => {
     const r = preset.getRange();
-    onChange({ ...r, label: preset.label });
-    setCustomStart(toDateInputStr(r.start));
+    // Clamp start to minDate
+    const start = minDate && r.start < minDate ? minDate : r.start;
+    onChange({ start, end: r.end, label: preset.label });
+    setCustomStart(toDateInputStr(start));
     setCustomEnd(toDateInputStr(r.end));
     setOpen(false);
   };
 
   const applyCustom = () => {
-    const s = new Date(customStart);
+    let s = new Date(customStart);
     const e = new Date(customEnd);
     if (isNaN(s.getTime()) || isNaN(e.getTime()) || s > e) return;
+    // Clamp start to minDate
+    if (minDate && s < minDate) s = minDate;
     onChange({
       start: s,
       end: e,
-      label: `${format(s, "MMM d")} – ${format(e, "MMM d, yyyy")}`,
+      label: `${format(s, "MMM d")} \u2013 ${format(e, "MMM d, yyyy")}`,
     });
     setOpen(false);
   };
+
+  // Filter out presets whose start would be before minDate
+  const availablePresets = minDate
+    ? PRESETS.filter((p) => p.getRange().start >= minDate)
+    : PRESETS;
 
   return (
     <div className="relative" ref={ref}>
@@ -125,7 +150,7 @@ export default function DateRangePicker({ value, onChange }: Props) {
         <div className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] sm:w-72 max-w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 p-4">
           {/* Presets */}
           <div className="space-y-1 mb-4">
-            {PRESETS.map((preset) => (
+            {availablePresets.map((preset) => (
               <button
                 key={preset.label}
                 onClick={() => applyPreset(preset)}
@@ -149,6 +174,7 @@ export default function DateRangePicker({ value, onChange }: Props) {
               <input
                 type="date"
                 value={customStart}
+                min={minDate ? toDateInputStr(minDate) : undefined}
                 onChange={(e) => setCustomStart(e.target.value)}
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               />

@@ -612,7 +612,8 @@ export function enrichWithLLMResults(
   stats: DashboardStats,
   allEmails: Email[],
   llmResult: LLMBatchResult,
-  userEmail?: string
+  userEmail?: string,
+  settings?: PromptSettings
 ): DashboardStats {
   const analysisMap = new Map<string, LLMEmailAnalysis>();
   for (const a of llmResult.analyses) {
@@ -688,8 +689,36 @@ export function enrichWithLLMResults(
     external: categoryMapToArray(llmExternalUnrepliedCategoryMap),
   };
 
-  // --- Buying signals (LLM-only) ---
-  const buyingSignalEmails: BuyingSignalEmail[] = allEmails
+  // --- Buying signals (LLM-only) — external senders only, noise excluded ---
+  const noiseEmailFilters = (settings?.noiseEmailFilters ?? [
+    "noreply@", "no-reply@", "donotreply@",
+    "notifications@", "notification@", "mailer-daemon@", "postmaster@",
+    "microsoft.com", "teams.microsoft",
+    "slack.com", "slackbot",
+    "powerbi", "sharepoint",
+    "github.com", "azure.com", "aws.amazon.com",
+    "supabase.com", "vercel.com", "netlify.com",
+    "jira", "atlassian", "trello",
+    "mailchimp", "sendgrid", "hubspot",
+    "zendesk", "freshdesk", "intercom",
+    "calendly", "zoom.us", "webex",
+  ]).map((f) => f.toLowerCase());
+  const noiseNameFilters = (settings?.noiseNameFilters ?? [
+    "in teams", "via teams", "power bi", "slack", "microsoft ",
+    "automated", "system", "do not reply", "no reply",
+    "security alert", "notification", "digest",
+  ]).map((f) => f.toLowerCase());
+
+  const externalNonNoiseEmails = allEmails.filter((email) => {
+    if (isInternalEmail(email, userDomain)) return false;
+    const addr = getSenderAddress(email).toLowerCase();
+    const name = getSenderName(email).toLowerCase();
+    if (noiseEmailFilters.some((f) => addr.includes(f))) return false;
+    if (noiseNameFilters.some((f) => name.includes(f))) return false;
+    return true;
+  });
+
+  const buyingSignalEmails: BuyingSignalEmail[] = externalNonNoiseEmails
     .map((email) => {
       const llm = analysisMap.get(email.id);
       const senderCompany = extractCompanyFromEmail(

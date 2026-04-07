@@ -124,18 +124,29 @@ export async function getCachedAnalyses(
   const cachedIds = new Set<string>();
   const now = new Date();
 
-  // Query in batches (Azure Table has limits)
-  const BATCH_SIZE = 50;
-  for (let i = 0; i < emailIds.length; i += BATCH_SIZE) {
-    const batch = emailIds.slice(i, i + BATCH_SIZE);
-    
-    for (const emailId of batch) {
-      try {
-        const rowKey = sanitizeEmailId(emailId);
-        const entity = await client.getEntity<EmailAnalysisEntity>(partitionKey, rowKey);
-        
-        // Check if expired
-        if (new Date(entity.expiresAt) > now && entity.analysisJson) {
+  // Build a set of sanitized row keys we care about for fast lookup
+  const wantedRowKeys = new Map<string, string>(); // sanitizedRowKey → original emailId
+  for (const emailId of emailIds) {
+    wantedRowKeys.set(sanitizeEmailId(emailId), emailId);
+  }
+
+  // Single partition scan — one HTTP request returns all cached entities
+  // for this user instead of hundreds of individual getEntity calls.
+  try {
+    const entities = client.listEntities<EmailAnalysisEntity>({
+      queryOptions: {
+        filter: odata`PartitionKey eq ${partitionKey}`,
+      },
+    });
+
+    for await (const entity of entities) {
+      const rowKey = entity.rowKey!;
+      // Skip the SUMMARY row and any rows we didn't ask for
+      const originalId = wantedRowKeys.get(rowKey);
+      if (!originalId) continue;
+
+      if (new Date(entity.expiresAt) > now && entity.analysisJson) {
+        try {
           const analysis = JSON.parse(entity.analysisJson) as LLMEmailAnalysis;
           const isCurrentSchema =
             entity.schemaVersion === ANALYSIS_SCHEMA_VERSION &&
@@ -143,13 +154,15 @@ export async function getCachedAnalyses(
 
           if (isCurrentSchema) {
             cachedAnalyses.push(analysis);
-            cachedIds.add(emailId);
+            cachedIds.add(originalId);
           }
+        } catch {
+          // Corrupted JSON — skip
         }
-      } catch {
-        // Not found - will be analyzed
       }
     }
+  } catch (error) {
+    console.error("Cache partition scan failed, falling back to uncached:", error);
   }
 
   console.log(`Cache lookup for ${userEmail}: ${cachedIds.size}/${emailIds.length} emails cached`);
@@ -192,22 +205,27 @@ export async function saveCachedAnalyses(
 
   console.log(`Saving ${analyses.length} email analyses for ${userEmail}`);
 
-  // Save each analysis as a separate entity
+  // Save analyses in parallel batches
   let savedCount = 0;
-  for (const analysis of analyses) {
-    try {
-      const entity: EmailAnalysisEntity = {
-        partitionKey,
-        rowKey: sanitizeEmailId(analysis.id),
-        analysisJson: JSON.stringify(analysis),
-        schemaVersion: ANALYSIS_SCHEMA_VERSION,
-        createdAt: now.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-      };
-      await client.upsertEntity(entity, "Replace");
-      savedCount++;
-    } catch (error) {
-      console.error(`Failed to cache analysis for email ${analysis.id}:`, error);
+  const SAVE_BATCH = 50;
+  for (let i = 0; i < analyses.length; i += SAVE_BATCH) {
+    const batch = analyses.slice(i, i + SAVE_BATCH);
+    const results = await Promise.allSettled(
+      batch.map((analysis) => {
+        const entity: EmailAnalysisEntity = {
+          partitionKey,
+          rowKey: sanitizeEmailId(analysis.id),
+          analysisJson: JSON.stringify(analysis),
+          schemaVersion: ANALYSIS_SCHEMA_VERSION,
+          createdAt: now.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        };
+        return client.upsertEntity(entity, "Replace");
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") savedCount++;
+      else console.error("Failed to cache analysis:", r.reason);
     }
   }
 
@@ -285,19 +303,30 @@ export async function clearCachedAnalysis(
   console.log(`Clearing all cached analyses for ${userEmail}`);
 
   try {
-    // Query all entities for this user and delete them
+    // Query all entities for this user and delete them in parallel batches
     const entities = client.listEntities<EmailAnalysisEntity>({
       queryOptions: { filter: odata`PartitionKey eq ${partitionKey}` }
     });
     
     let deletedCount = 0;
+    const DELETE_BATCH = 50;
+    let batch: { partitionKey: string; rowKey: string }[] = [];
+
     for await (const entity of entities) {
-      try {
-        await client.deleteEntity(entity.partitionKey!, entity.rowKey!);
-        deletedCount++;
-      } catch {
-        // Ignore delete errors
+      batch.push({ partitionKey: entity.partitionKey!, rowKey: entity.rowKey! });
+      if (batch.length >= DELETE_BATCH) {
+        const results = await Promise.allSettled(
+          batch.map((e) => client.deleteEntity(e.partitionKey, e.rowKey))
+        );
+        deletedCount += results.filter((r) => r.status === "fulfilled").length;
+        batch = [];
       }
+    }
+    if (batch.length > 0) {
+      const results = await Promise.allSettled(
+        batch.map((e) => client.deleteEntity(e.partitionKey, e.rowKey))
+      );
+      deletedCount += results.filter((r) => r.status === "fulfilled").length;
     }
     
     console.log(`Deleted ${deletedCount} cached entries for ${userEmail}`);

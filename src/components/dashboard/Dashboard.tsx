@@ -6,11 +6,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getAllRecentEmails, getSentEmails, getUserProfile } from "@/lib/graph-service";
 import { analyzeEmails, enrichWithLLMResults } from "@/lib/email-analyzer";
 import { DashboardStats, UserProfile, Email } from "@/lib/types";
-import { loadSettings } from "@/lib/prompt-settings";
+import { loadSettings, loadSettingsAsync } from "@/lib/prompt-settings";
 import { useTeamsContext } from "@/components/providers/MsalProvider";
 import { getTeamsSsoToken } from "@/lib/teams-context";
 import DashboardHeader from "./DashboardHeader";
-import DateRangePicker, { DateRange, getRangeFromStartDate } from "./DateRangePicker";
+import DateRangePicker, { DateRange, getCurrentWeekRange, getRangeFromStartDate } from "./DateRangePicker";
 import StatsOverview from "./StatsOverview";
 import UnreadSection from "./UnreadSection";
 import UnrepliedSection from "./UnrepliedSection";
@@ -218,11 +218,9 @@ export default function Dashboard() {
   const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const settings = loadSettings();
-    return getRangeFromStartDate(settings.defaultAnalysisStartDate);
-  });
+  const [dateRange, setDateRange] = useState<DateRange>(getCurrentWeekRange);
   const dateRangeRef = useRef(dateRange);
+  const [minDate, setMinDate] = useState<Date | undefined>(undefined);
   const [teamsReady, setTeamsReady] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [newEmailsAnalyzed, setNewEmailsAnalyzed] = useState(0);
@@ -240,9 +238,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     const settings = loadSettings();
+    // Derive the earliest allowed date from settings (used to clamp the picker)
     const configuredRange = getRangeFromStartDate(settings.defaultAnalysisStartDate);
-    setDateRange(configuredRange);
-    dateRangeRef.current = configuredRange;
+    setMinDate(configuredRange.start);
   }, []);
 
   useEffect(() => {
@@ -268,13 +266,25 @@ export default function Dashboard() {
 
     // Browser flow: MSAL silent token
     const account = accounts[0];
-    if (!account) throw new Error("No account found");
+    if (!account) {
+      // No account — redirect to login
+      await instance.loginRedirect(loginRequest);
+      throw new Error("Redirecting to login");
+    }
 
-    const response = await instance.acquireTokenSilent({
-      ...graphScopes,
-      account,
-    });
-    return response.accessToken;
+    try {
+      const response = await instance.acquireTokenSilent({
+        ...graphScopes,
+        account,
+      });
+      return response.accessToken;
+    } catch (err) {
+      // Any silent token failure (expired session, timed_out, consent
+      // required, network error) — redirect to Microsoft login
+      console.warn("Silent token acquisition failed, redirecting to login:", err);
+      await instance.acquireTokenRedirect({ ...graphScopes, account });
+      throw new Error("Redirecting to login");
+    }
   }, [instance, accounts, inTeams]);
 
   const getSnapshotUserKey = useCallback((): string | null => {
@@ -323,8 +333,11 @@ export default function Dashboard() {
       setProfile(userProfile);
 
       // Phase 1: Instant keyword-based analysis
-      const promptSettings = loadSettings();
+      const promptSettings = await loadSettingsAsync(userProfile.mail);
       setTrackInternalEmails(promptSettings.trackInternalEmails !== false);
+      // Update minDate from server-stored settings
+      const configuredRange = getRangeFromStartDate(promptSettings.defaultAnalysisStartDate);
+      setMinDate(configuredRange.start);
       const dashboardStats = analyzeEmails(
         allEmails,
         sentEmails,
@@ -352,110 +365,163 @@ export default function Dashboard() {
       try {
         const userEmailLower = userProfile.mail.toLowerCase();
 
-        // Prioritize unreplied emails so client/internal tracker threads
-        // always get AI analysis even when total emails exceed the 200 limit.
+        // Collect every email ID that appears in a tracker thread so they
+        // are guaranteed to be sent to Claude regardless of the overall cap.
+        const trackerEmailIds = new Set<string>();
+        for (const t of dashboardStats.clientThreads) {
+          for (const e of t.emails) trackerEmailIds.add(e.id);
+        }
+        for (const t of dashboardStats.internalThreads) {
+          for (const e of t.emails) trackerEmailIds.add(e.id);
+        }
+
+        // Build a prioritised list: tracker emails first, then other
+        // unreplied emails, then replied emails.  Cap at 500.
         const sentConvoIds = new Set(sentEmails.map((e) => e.conversationId));
-        const unreplied: Email[] = [];
+        const trackerEmails: Email[] = [];
+        const otherUnreplied: Email[] = [];
         const replied: Email[] = [];
         for (const e of allEmails) {
-          if (sentConvoIds.has(e.conversationId)) {
-            replied.push(e);
+          if (trackerEmailIds.has(e.id)) {
+            trackerEmails.push(e);
+          } else if (!sentConvoIds.has(e.conversationId)) {
+            otherUnreplied.push(e);
           } else {
-            unreplied.push(e);
+            replied.push(e);
           }
         }
-        const prioritizedEmails = [...unreplied, ...replied];
-        
-        const emailsForLLM = prioritizedEmails.slice(0, 200).map((e) => {
-          const senderAddress = e.from?.emailAddress?.address || "";
-          const senderName = e.from?.emailAddress?.name || "Unknown Sender";
-          // Determine if user is in TO, CC, or BCC (inferred)
-          const inTo = e.toRecipients?.some(
-            (r) => r.emailAddress.address.toLowerCase() === userEmailLower
-          );
-          const inCc = e.ccRecipients?.some(
-            (r) => r.emailAddress.address.toLowerCase() === userEmailLower
-          );
-          // If not in TO or CC but received the email, must be BCC
-          const recipientType: "to" | "cc" | "bcc" = inTo ? "to" : inCc ? "cc" : "bcc";
-          
-          // Get TO recipient names for context
-          const toRecipients = e.toRecipients?.map(
-            (r) => r.emailAddress.name || r.emailAddress.address
-          ) || [];
-          
-          return {
-            id: e.id,
-            subject: e.subject,
-            from: senderName,
-            fromEmail: senderAddress,
-            bodyPreview: e.bodyPreview,
-            bodyContent: extractPlainTextEmailBody(e),
-            receivedDateTime: e.receivedDateTime,
-            importance: e.importance,
-            hasAttachments: e.hasAttachments,
-            recipientType,
-            toRecipients,
-          };
-        });
+        const prioritizedEmails = [...trackerEmails, ...otherUnreplied, ...replied];
+        const top500 = prioritizedEmails.slice(0, 500);
 
-        console.log("Sending AI analysis request:", {
-          emailCount: emailsForLLM.length,
-          userEmail: userProfile.mail,
-          startDate: range.start.toISOString(),
-          endDate: range.end.toISOString(),
-          forceRefresh,
-        });
+        // --- Phase 2a: Check cache (lightweight — IDs only) ---
+        const allEmailIds = allEmails.map((e) => e.id);
 
-        const res = await fetch("/api/analyze", {
+        const cacheRes = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            emails: emailsForLLM,
-            promptSettings,
+            cacheOnly: true,
+            emailIds: allEmailIds,
             userEmail: userProfile.mail,
-            userName: userProfile.displayName,
             startDate: range.start.toISOString(),
             endDate: range.end.toISOString(),
-            forceRefresh,
+            ...(forceRefresh ? { forceRefresh: true } : {}),
           }),
         });
+        if (!cacheRes.ok) throw new Error("Cache check failed");
 
-        if (res.ok) {
-          const llmResult = await res.json();
-          const wasCached = llmResult.fromCache === true;
-          const newAnalyzed = llmResult.newEmailsAnalyzed || 0;
-          
-          console.log(
-            wasCached 
-              ? `AI results from cache (${newAnalyzed} new emails analyzed)`
-              : `AI analysis completed: ${llmResult.analyses?.length} emails analyzed`
-          );
-          
-          setFromCache(wasCached);
-          setNewEmailsAnalyzed(newAnalyzed);
-          
-          const enrichedStats = enrichWithLLMResults(
+        const cacheResult = await cacheRes.json();
+        const uncachedIds = new Set<string>(cacheResult.uncachedIds || []);
+
+        console.log(`Cache check: ${allEmailIds.length - uncachedIds.size} cached, ${uncachedIds.size} uncached`);
+
+        // Enrich immediately with cached results
+        if (cacheResult.analyses?.length > 0) {
+          setFromCache(true);
+          const cachedEnriched = enrichWithLLMResults(
             dashboardStats,
             allEmails,
-            llmResult,
-            userProfile.mail
+            cacheResult,
+            userProfile.mail,
+            promptSettings
           );
-          setStats(enrichedStats);
+          setStats(cachedEnriched);
           setShowingSnapshot(false);
+        }
 
-          if (snapshotUserKey) {
+        // --- Phase 2b: Analyze only uncached emails (full bodies) ---
+        const uncachedEmails = top500.filter((e) => uncachedIds.has(e.id));
+
+        if (uncachedEmails.length > 0) {
+          console.log(`Sending ${uncachedEmails.length} uncached emails for AI analysis`);
+
+          const emailsForLLM = uncachedEmails.map((e) => {
+            const senderAddress = e.from?.emailAddress?.address || "";
+            const senderName = e.from?.emailAddress?.name || "Unknown Sender";
+            const inTo = e.toRecipients?.some(
+              (r) => r.emailAddress.address.toLowerCase() === userEmailLower
+            );
+            const inCc = e.ccRecipients?.some(
+              (r) => r.emailAddress.address.toLowerCase() === userEmailLower
+            );
+            const recipientType: "to" | "cc" | "bcc" = inTo ? "to" : inCc ? "cc" : "bcc";
+            const toRecipients = e.toRecipients?.map(
+              (r) => r.emailAddress.name || r.emailAddress.address
+            ) || [];
+
+            return {
+              id: e.id,
+              subject: e.subject,
+              from: senderName,
+              fromEmail: senderAddress,
+              bodyPreview: e.bodyPreview,
+              bodyContent: extractPlainTextEmailBody(e),
+              receivedDateTime: e.receivedDateTime,
+              importance: e.importance,
+              hasAttachments: e.hasAttachments,
+              recipientType,
+              toRecipients,
+            };
+          });
+
+          const analyzeRes = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              emails: emailsForLLM,
+              promptSettings,
+              userEmail: userProfile.mail,
+              userName: userProfile.displayName,
+            }),
+          });
+
+          if (analyzeRes.ok) {
+            const newResult = await analyzeRes.json();
+            setNewEmailsAnalyzed(newResult.newEmailsAnalyzed || 0);
+
+            // Merge cached + new analyses for final enrichment
+            const mergedResult = {
+              analyses: [...(cacheResult.analyses || []), ...(newResult.analyses || [])],
+              executiveSummary: newResult.executiveSummary || cacheResult.executiveSummary || "",
+              attentionItems: newResult.attentionItems,
+            };
+
+            const enrichedStats = enrichWithLLMResults(
+              dashboardStats,
+              allEmails,
+              mergedResult,
+              userProfile.mail,
+              promptSettings
+            );
+            setStats(enrichedStats);
+            setShowingSnapshot(false);
+
+            if (snapshotUserKey) {
+              saveDashboardSnapshot(snapshotUserKey, range, {
+                version: DASHBOARD_SNAPSHOT_VERSION,
+                stats: createSnapshotStats(enrichedStats),
+                profile: stripProfileForSnapshot(userProfile),
+                lastRefresh: new Date().toISOString(),
+                trackInternalEmails: promptSettings.trackInternalEmails !== false,
+              });
+            }
+          } else {
+            const errorData = await analyzeRes.json().catch(() => ({}));
+            console.error("AI analysis failed:", analyzeRes.status, errorData);
+          }
+        } else {
+          // All cached — save snapshot with cached enrichment
+          setNewEmailsAnalyzed(0);
+          const currentStats = statsRef.current;
+          if (snapshotUserKey && currentStats) {
             saveDashboardSnapshot(snapshotUserKey, range, {
               version: DASHBOARD_SNAPSHOT_VERSION,
-              stats: createSnapshotStats(enrichedStats),
+              stats: createSnapshotStats(currentStats),
               profile: stripProfileForSnapshot(userProfile),
               lastRefresh: new Date().toISOString(),
               trackInternalEmails: promptSettings.trackInternalEmails !== false,
             });
           }
-        } else {
-          const errorData = await res.json().catch(() => ({}));
-          console.error("AI analysis failed:", res.status, errorData);
         }
       } catch (aiErr) {
         console.warn("AI enrichment failed, using keyword analysis:", aiErr);
@@ -470,15 +536,21 @@ export default function Dashboard() {
     }
   }, [getAccessToken, getSnapshotUserKey]);
 
+  const fetchingRef = useRef(false);
+  const initialFetchDoneRef = useRef(false);
+
   useEffect(() => {
     if ((isAuthenticated || teamsReady) && !snapshotHydratedRef.current) {
       snapshotHydratedRef.current = hydrateFromSnapshot();
     }
   }, [isAuthenticated, teamsReady, hydrateFromSnapshot]);
 
+  // Trigger initial fetch exactly once when authenticated
   useEffect(() => {
-    if (isAuthenticated || teamsReady) {
-      fetchData();
+    if ((isAuthenticated || teamsReady) && !initialFetchDoneRef.current) {
+      initialFetchDoneRef.current = true;
+      fetchingRef.current = true;
+      fetchData().finally(() => { fetchingRef.current = false; });
     }
   }, [isAuthenticated, teamsReady, fetchData]);
 
@@ -486,14 +558,16 @@ export default function Dashboard() {
     setDateRange(range);
     dateRangeRef.current = range;
     hydrateFromSnapshot(range);
-    if (isAuthenticated || teamsReady) {
-      fetchData();
+    if ((isAuthenticated || teamsReady) && !fetchingRef.current) {
+      fetchingRef.current = true;
+      fetchData().finally(() => { fetchingRef.current = false; });
     }
   };
 
   const handleReanalyze = () => {
-    if (isAuthenticated || teamsReady) {
-      fetchData(true);
+    if ((isAuthenticated || teamsReady) && !fetchingRef.current) {
+      fetchingRef.current = true;
+      fetchData(true).finally(() => { fetchingRef.current = false; });
     }
   };
 
@@ -580,6 +654,7 @@ export default function Dashboard() {
           <DateRangePicker
             value={dateRange}
             onChange={handleDateRangeChange}
+            minDate={minDate}
           />
         }
       />
